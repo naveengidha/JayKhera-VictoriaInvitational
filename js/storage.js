@@ -8,6 +8,9 @@ const KEYS = {
   ROUND3:   'bbc2026_round3',
 };
 
+// In-memory cache — hydrated from Firebase on load and on remote updates
+const _cache = {};
+
 // ── Course Presets ────────────────────────────────────────────────────────────
 const COURSE_PRESETS = [
   {
@@ -48,6 +51,7 @@ const COURSE_PRESETS = [
 
 function _save(key, data) {
   localStorage.setItem(key, JSON.stringify(data));
+  if (window._fbSave) window._fbSave(key, data);
 }
 
 function _load(key) {
@@ -91,7 +95,7 @@ function emptyRoundData(num) {
 
 // Players
 function savePlayers(arr) { _save(KEYS.PLAYERS, arr); }
-function loadPlayers() { return _load(KEYS.PLAYERS) || defaultPlayers(); }
+function loadPlayers() { return _cache.players || _load(KEYS.PLAYERS) || defaultPlayers(); }
 
 // Course (legacy single-course helpers kept for compatibility)
 function saveCourse(obj) { _save(KEYS.COURSE, obj); }
@@ -100,7 +104,7 @@ function loadCourse() { return _load(KEYS.COURSE) || defaultCourse(); }
 // Per-round courses: array of 3 objects [round1, round2, round3]
 function saveRoundCourses(arr) { _save(KEYS.COURSES, arr); }
 function loadRoundCourses() {
-  return _load(KEYS.COURSES) || [
+  return _cache.courses || _load(KEYS.COURSES) || [
     presetToStoredCourse('bear-mountain'),
     presetToStoredCourse('highland-pacific'),
     presetToStoredCourse('bear-valley'),
@@ -130,10 +134,36 @@ function firstPar3(pars) {
 
 // Rounds
 function saveRound(n, obj) { _save(KEYS['ROUND' + n], obj); }
-function loadRound(n) { return _load(KEYS['ROUND' + n]) || emptyRoundData(n); }
+function loadRound(n) { return _cache['round' + n] || _load(KEYS['ROUND' + n]) || emptyRoundData(n); }
 
 function clearAll() {
   Object.values(KEYS).forEach(k => localStorage.removeItem(k));
+  Object.keys(_cache).forEach(k => delete _cache[k]);
+  if (window._fbClear) window._fbClear();
+}
+
+// Normalize a Firebase value back to a JS array (Firebase may return sparse objects)
+function _normArray(v, len) {
+  if (Array.isArray(v)) return v;
+  return Array.from({ length: len }, (_, i) => (v && v[i] !== undefined) ? v[i] : null);
+}
+
+// Hydrate in-memory cache from a Firebase snapshot value
+function hydrateFromFirebase(data) {
+  if (!data) return;
+  if (data.players) _cache.players = data.players;
+  if (data.courses) _cache.courses = data.courses;
+  ['round1', 'round2', 'round3'].forEach(k => {
+    if (!data[k]) return;
+    const rd = JSON.parse(JSON.stringify(data[k]));
+    (rd.scores || []).forEach(s => {
+      if (s.gross) s.gross = _normArray(s.gross, 18);
+      (s.playerScores || []).forEach(ps => {
+        if (ps.gross) ps.gross = _normArray(ps.gross, 18);
+      });
+    });
+    _cache[k] = rd;
+  });
 }
 
 // Convenience: get a player by id

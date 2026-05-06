@@ -1,4 +1,4 @@
-const CACHE_NAME = 'bbc2026-v1.1';
+const CACHE_NAME = 'bbc2026-v2';
 const ASSETS = [
   './',
   './index.html',
@@ -7,6 +7,9 @@ const ASSETS = [
   './js/app.js',
   './js/scoring.js',
   './js/storage.js',
+  './js/firebase.js',
+  './js/firebase-app-compat.js',
+  './js/firebase-database-compat.js',
   './icons/icon-192.svg',
   './icons/icon-512.svg',
   './assets/logo.jpeg',

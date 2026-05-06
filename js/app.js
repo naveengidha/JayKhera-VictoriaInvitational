@@ -29,16 +29,82 @@ const ROUTES = {
   '#rounds':      showRoundsMenu,
 };
 
+// Viewer mode: stored in sessionStorage so it persists across in-app navigation
+// but resets when the browser/tab is closed (each session picks a role)
+const IS_VIEWER = sessionStorage.getItem('bbc_role') === 'view';
+let _viewerListenerRef = null;
+let _viewerListenerFn  = null;
+
+function attachViewerListener(hash) {
+  if (!IS_VIEWER || typeof firebase === 'undefined') return;
+  if (_viewerListenerRef && _viewerListenerFn) {
+    _viewerListenerRef.off('value', _viewerListenerFn);
+  }
+  _viewerListenerRef = firebase.database().ref('bbc2026');
+  _viewerListenerFn  = function(snap) {
+    hydrateFromFirebase(snap.val() || {});
+    const fn = ROUTES[hash] || showHome;
+    fn();
+  };
+  _viewerListenerRef.on('value', _viewerListenerFn);
+}
+
 function route() {
   const hash = location.hash || '#home';
   const fn = ROUTES[hash] || showHome;
   document.querySelectorAll('.view').forEach(v => v.classList.remove('active'));
   fn();
   updateNav(hash);
+  attachViewerListener(hash);
 }
 
 window.addEventListener('hashchange', route);
-window.addEventListener('load', () => { buildNav(); route(); });
+window.addEventListener('load', () => {
+  buildNav();
+  if (sessionStorage.getItem('bbc_role')) {
+    route();
+  } else {
+    showRoleSelect();
+  }
+});
+
+function showRoleSelect() {
+  const currentRole = sessionStorage.getItem('bbc_role');
+  const overlay = document.createElement('div');
+  overlay.id = 'role-select';
+  overlay.className = 'role-select-overlay';
+  overlay.innerHTML = `
+    <div class="role-select-card">
+      <img src="assets/logo.jpeg" alt="BBC 2026" class="role-select-logo">
+      <h1 class="role-select-title">Breakfast Ball Club</h1>
+      <p class="role-select-subtitle">2026 Victoria Invitational</p>
+      <p class="role-select-prompt">${currentRole ? 'Switch role' : 'How are you joining?'}</p>
+      <div class="role-select-btns">
+        <button class="btn role-btn role-btn-score ${currentRole === 'score' ? 'role-btn-active' : ''}" onclick="selectRole('score')">
+          ${iconFlag()}
+          <span class="role-btn-label">Scorekeeper</span>
+          <span class="role-btn-desc">Enter scores for all players</span>
+        </button>
+        <button class="btn role-btn role-btn-view ${currentRole === 'view' ? 'role-btn-active' : ''}" onclick="selectRole('view')">
+          ${iconTrophy()}
+          <span class="role-btn-label">Viewer</span>
+          <span class="role-btn-desc">Watch live scores &amp; standings</span>
+        </button>
+      </div>
+      ${currentRole ? `<button class="btn btn-outline role-btn-cancel" onclick="document.getElementById('role-select').remove()">Cancel</button>` : ''}
+    </div>
+  `;
+  document.getElementById('app').prepend(overlay);
+}
+
+function selectRole(role) {
+  sessionStorage.setItem('bbc_role', role);
+  const overlay = document.getElementById('role-select');
+  if (overlay) overlay.remove();
+  // Re-evaluate IS_VIEWER by reloading — simplest way to ensure all
+  // downstream code sees the correct role without a full refactor
+  location.reload();
+}
 
 function navigate(hash) { location.hash = hash; }
 
@@ -52,6 +118,9 @@ function buildNav() {
   const bottomNav = document.getElementById('bottom-nav');
   const sidebarNav = document.getElementById('sidebar-nav');
   const allItems = [...NAV_ITEMS];
+  const role = sessionStorage.getItem('bbc_role');
+  const roleLabel = role === 'view' ? 'Viewer' : 'Scorekeeper';
+  const roleIcon = role === 'view' ? iconTrophy() : iconFlag();
 
   bottomNav.innerHTML = allItems.map(item => `
     <button class="nav-item" data-hash="${item.hash}" onclick="navigate('${item.hash}')">
@@ -69,7 +138,12 @@ function buildNav() {
       ${item.icon || ''}
       <span>${item.label}</span>
     </button>
-  `).join('');
+  `).join('') + `
+    <button class="nav-item role-switch-btn" onclick="showRoleSelect()">
+      ${roleIcon}
+      <span>${roleLabel}</span>
+    </button>
+  `;
 }
 
 // ── Toast ────────────────────────────────────────────────────────────────────
@@ -197,6 +271,16 @@ function showHome() {
         <button class="btn btn-outline" onclick="navigate('#payouts')">💰 Payouts</button>
         <button class="btn btn-outline" onclick="navigate('#rules')">📖 Rules</button>
       </div>
+
+      <div class="role-home-card" onclick="showRoleSelect()">
+        <div class="role-home-icon">${IS_VIEWER ? iconTrophy() : iconFlag()}</div>
+        <div class="role-home-text">
+          <div class="role-home-label">You are: <strong>${IS_VIEWER ? 'Viewer' : 'Scorekeeper'}</strong></div>
+          <div class="role-home-hint">Tap to switch role</div>
+        </div>
+        <div class="role-home-arrow">›</div>
+      </div>
+
     </div>
   `;
 }
