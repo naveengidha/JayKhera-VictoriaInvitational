@@ -1,0 +1,12 @@
+<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 192 192">
+  <rect width="192" height="192" rx="24" fill="#2D5A27"/>
+  <circle cx="96" cy="82" r="36" fill="#F5C518" stroke="#C9A227" stroke-width="3"/>
+  <circle cx="88" cy="74" r="4" fill="#2D5A27" opacity="0.4"/>
+  <circle cx="100" cy="70" r="4" fill="#2D5A27" opacity="0.4"/>
+  <circle cx="110" cy="78" r="4" fill="#2D5A27" opacity="0.4"/>
+  <circle cx="104" cy="88" r="4" fill="#2D5A27" opacity="0.4"/>
+  <circle cx="88" cy="88" r="4" fill="#2D5A27" opacity="0.4"/>
+  <rect x="94" y="118" width="4" height="32" fill="#C9A227"/>
+  <rect x="80" y="148" width="32" height="4" rx="2" fill="#C9A227"/>
+  <text x="96" y="178" font-family="Georgia,serif" font-size="13" font-weight="700" fill="#F5C518" text-anchor="middle">BBC 2026</text>
+</svg>

@@ -1,0 +1,78 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="UTF-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1.0, maximum-scale=1.0, user-scalable=no">
+  <meta name="apple-mobile-web-app-capable" content="yes">
+  <meta name="apple-mobile-web-app-status-bar-style" content="black-translucent">
+  <meta name="apple-mobile-web-app-title" content="BBC 2026">
+  <meta name="theme-color" content="#2D5A27">
+  <title>BBC 2026 Victoria Invitational</title>
+  <link rel="manifest" href="manifest.json">
+  <link rel="apple-touch-icon" href="icons/icon-192.svg">
+  <link rel="preconnect" href="https://fonts.googleapis.com">
+  <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
+  <link rel="stylesheet" href="https://fonts.googleapis.com/css2?family=Playfair+Display:wght@400;700;900&family=Source+Sans+3:wght@400;600&display=swap">
+  <link rel="stylesheet" href="styles/main.css">
+</head>
+<body>
+<div id="app">
+
+  <!-- Sidebar (desktop only) -->
+  <aside id="sidebar">
+    <div class="sidebar-logo">
+      <img src="assets/logo.jpeg" alt="BBC 2026">
+      <h2>Breakfast Ball Club<br>2026 Victoria Invitational</h2>
+    </div>
+    <nav class="sidebar-nav" id="sidebar-nav"></nav>
+  </aside>
+
+  <!-- Main Content -->
+  <main id="content">
+
+    <!-- HOME -->
+    <section id="view-home" class="view"></section>
+
+    <!-- SETUP -->
+    <section id="view-setup" class="view"></section>
+
+    <!-- ROUND 1 -->
+    <section id="view-round1" class="view"></section>
+
+    <!-- ROUND 2 -->
+    <section id="view-round2" class="view"></section>
+
+    <!-- ROUND 3 -->
+    <section id="view-round3" class="view"></section>
+
+    <!-- LEADERBOARD -->
+    <section id="view-leaderboard" class="view"></section>
+
+    <!-- PAYOUTS -->
+    <section id="view-payouts" class="view"></section>
+
+    <!-- RULES -->
+    <section id="view-rules" class="view"></section>
+
+  </main>
+
+  <!-- Bottom Nav (mobile) -->
+  <nav id="bottom-nav"></nav>
+
+</div>
+
+<!-- Toast -->
+<div class="toast" id="toast"></div>
+
+<script src="js/storage.js"></script>
+<script src="js/scoring.js"></script>
+<script src="js/app.js"></script>
+<script>
+  if ('serviceWorker' in navigator) {
+    window.addEventListener('load', () => {
+      navigator.serviceWorker.register('./sw.js').catch(() => {});
+    });
+  }
+</script>
+</body>
+</html>
