@@ -1,4 +1,4 @@
-const CACHE_NAME = 'bbc2026-v1';
+const CACHE_NAME = 'bbc2026-v1.1';
 const ASSETS = [
   './',
   './index.html',
