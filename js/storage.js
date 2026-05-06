@@ -1,11 +1,50 @@
 /* js/storage.js — localStorage helpers */
 const KEYS = {
-  PLAYERS: 'bbc2026_players',
-  COURSE:  'bbc2026_course',
-  ROUND1:  'bbc2026_round1',
-  ROUND2:  'bbc2026_round2',
-  ROUND3:  'bbc2026_round3',
+  PLAYERS:  'bbc2026_players',
+  COURSE:   'bbc2026_course',   // legacy / fallback
+  COURSES:  'bbc2026_courses',  // per-round courses [r1, r2, r3]
+  ROUND1:   'bbc2026_round1',
+  ROUND2:   'bbc2026_round2',
+  ROUND3:   'bbc2026_round3',
 };
+
+// ── Course Presets ────────────────────────────────────────────────────────────
+const COURSE_PRESETS = [
+  {
+    id: 'bear-mountain',
+    name: 'Bear Mountain — Mountain Course',
+    location: 'Victoria, BC',
+    par: 71,
+    // Best-guess par-71 layout (Jack Nicklaus design). Correct any holes in Setup.
+    pars:         [4,4,3,4,5,3,4,4,4, 4,4,3,5,4,4,3,5,4],
+    strokeIndexes:[3,11,17,7,1,15,5,13,9, 4,12,18,2,10,6,16,8,14],
+    note: '⚠ Estimated layout — verify par/SI before play',
+  },
+  {
+    id: 'highland-pacific',
+    name: 'Highland Pacific Golf Course',
+    location: 'Victoria, BC',
+    par: 71,
+    pars:         [4,3,4,5,4,4,4,3,4, 4,4,3,5,4,5,4,3,3],
+    strokeIndexes:[8,16,12,2,18,10,4,6,14, 13,9,11,5,1,3,7,15,17],
+  },
+  {
+    id: 'bear-valley',
+    name: 'Bear Mountain — Valley Course',
+    location: 'Victoria, BC',
+    par: 71,
+    pars:         [5,3,4,4,4,3,4,4,4, 3,4,5,4,3,5,3,4,5],
+    strokeIndexes:[17,15,5,1,13,9,7,11,3, 12,6,10,2,18,8,16,4,14],
+  },
+  {
+    id: 'custom',
+    name: 'Custom Course',
+    location: '',
+    par: 72,
+    pars:         [4,3,5,4,4,3,4,5,4, 4,4,3,5,4,4,3,5,4],
+    strokeIndexes:[7,15,1,11,5,17,3,13,9, 8,16,2,12,6,18,4,14,10],
+  },
+];
 
 function _save(key, data) {
   localStorage.setItem(key, JSON.stringify(data));
@@ -17,13 +56,7 @@ function _load(key) {
 }
 
 function defaultCourse() {
-  return {
-    name: 'Victoria Golf Club',
-    pars: [4,3,5,4,4,3,4,5,4, 4,4,3,5,4,4,3,5,4],
-    strokeIndexes: [7,15,1,11,5,17,3,13,9, 8,16,2,12,6,18,4,14,10],
-    ctpHoles: [6, 6, 6],
-    longDriveHoles: [1, 10, 18],
-  };
+  return presetToStoredCourse('bear-mountain');
 }
 
 function defaultPlayers() {
@@ -60,9 +93,40 @@ function emptyRoundData(num) {
 function savePlayers(arr) { _save(KEYS.PLAYERS, arr); }
 function loadPlayers() { return _load(KEYS.PLAYERS) || defaultPlayers(); }
 
-// Course
+// Course (legacy single-course helpers kept for compatibility)
 function saveCourse(obj) { _save(KEYS.COURSE, obj); }
 function loadCourse() { return _load(KEYS.COURSE) || defaultCourse(); }
+
+// Per-round courses: array of 3 objects [round1, round2, round3]
+function saveRoundCourses(arr) { _save(KEYS.COURSES, arr); }
+function loadRoundCourses() {
+  return _load(KEYS.COURSES) || [
+    presetToStoredCourse('bear-mountain'),
+    presetToStoredCourse('highland-pacific'),
+    presetToStoredCourse('bear-valley'),
+  ];
+}
+function loadCourseForRound(n) {
+  const courses = loadRoundCourses();
+  return courses[n - 1] || loadCourse();
+}
+
+function presetToStoredCourse(presetId) {
+  const p = COURSE_PRESETS.find(c => c.id === presetId) || COURSE_PRESETS[3];
+  return {
+    presetId:     p.id,
+    name:         p.name,
+    pars:         [...p.pars],
+    strokeIndexes:[...p.strokeIndexes],
+    ctpHoles:     [firstPar3(p.pars), firstPar3(p.pars), firstPar3(p.pars)],
+    longDriveHoles:[1, 1, 1],
+  };
+}
+
+function firstPar3(pars) {
+  const idx = pars.findIndex(p => p === 3);
+  return idx >= 0 ? idx + 1 : 2;
+}
 
 // Rounds
 function saveRound(n, obj) { _save(KEYS['ROUND' + n], obj); }

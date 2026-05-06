@@ -174,15 +174,18 @@ function assignTeamPoints(teamGroups, teams, pointsScale) {
 }
 
 // Compute overall standings from round data
-function computeOverall(round1, round2, round3, players, course) {
-  const { pars, strokeIndexes } = course;
+function computeOverall(round1, round2, round3, players, coursesOrCourse) {
+  // Accept either a single course object or an array of 3 [r1, r2, r3]
+  const c1 = Array.isArray(coursesOrCourse) ? coursesOrCourse[0] : coursesOrCourse;
+  const c2 = Array.isArray(coursesOrCourse) ? coursesOrCourse[1] : coursesOrCourse;
+  const c3 = Array.isArray(coursesOrCourse) ? coursesOrCourse[2] : coursesOrCourse;
   const playerIds = players.map(p => p.id);
 
   // R1 — stableford, highest wins
   let r1Points = {};
   if (round1.status !== 'not_started' && round1.scores.length > 0) {
     const r1Scores = round1.scores.map(s => {
-      const computed = computePlayerRound(s.gross || [], s.handicap ?? getPlayerHandicap(players, s.playerId), pars, strokeIndexes);
+      const computed = computePlayerRound(s.gross || [], s.handicap ?? getPlayerHandicap(players, s.playerId), c1.pars, c1.strokeIndexes);
       return { playerId: s.playerId, total: computed.stablefordTotal };
     }).filter(s => s.total != null);
     const { groups } = rankPlayers(r1Scores, 'total', false);
@@ -193,7 +196,7 @@ function computeOverall(round1, round2, round3, players, course) {
   let r2Points = {};
   if (round2.status !== 'not_started' && round2.scores.length > 0) {
     const r2Scores = round2.scores.map(ts => {
-      const computed = computeTeamRound(ts, players, pars, strokeIndexes);
+      const computed = computeTeamRound(ts, players, c2.pars, c2.strokeIndexes);
       return { teamId: ts.teamId, total: computed.total };
     }).filter(s => s.total != null);
     const { groups } = rankPlayers(r2Scores, 'total', true);
@@ -204,7 +207,7 @@ function computeOverall(round1, round2, round3, players, course) {
   let r3Points = {};
   if (round3.status !== 'not_started' && round3.scores.length > 0) {
     const r3Scores = round3.scores.map(s => {
-      const computed = computePlayerRound(s.gross || [], s.handicap ?? getPlayerHandicap(players, s.playerId), pars, strokeIndexes);
+      const computed = computePlayerRound(s.gross || [], s.handicap ?? getPlayerHandicap(players, s.playerId), c3.pars, c3.strokeIndexes);
       return { playerId: s.playerId, total: computed.netTotal };
     }).filter(s => s.total != null);
     const { groups } = rankPlayers(r3Scores, 'total', true);
@@ -228,7 +231,10 @@ function getPlayerHandicap(players, id) {
 }
 
 // Compute payout from overall standings
-function computePayouts(overallStandings, round1, round2, round3, players, course) {
+function computePayouts(overallStandings, round1, round2, round3, players, coursesOrCourse) {
+  const c1 = Array.isArray(coursesOrCourse) ? coursesOrCourse[0] : coursesOrCourse;
+  const c2 = Array.isArray(coursesOrCourse) ? coursesOrCourse[1] : coursesOrCourse;
+  const c3 = Array.isArray(coursesOrCourse) ? coursesOrCourse[2] : coursesOrCourse;
   const OVERALL_POOL   = [400, 220, 140];
   const ROUND_POOL     = [70, 60, 70]; // R1, R2, R3
   const CTP_PER_ROUND  = 40;
@@ -269,7 +275,7 @@ function computePayouts(overallStandings, round1, round2, round3, players, cours
 
     if (idx === 1) {
       // R2 — team round, winning team splits $60 ($30 each)
-      const { pars, strokeIndexes } = course;
+      const { pars, strokeIndexes } = c2;
       const teamScores = round.scores.map(ts => {
         const computed = computeTeamRound(ts, players, pars, strokeIndexes);
         return { teamId: ts.teamId, total: computed.total };
@@ -290,7 +296,8 @@ function computePayouts(overallStandings, round1, round2, round3, players, cours
       }
     } else {
       // R1/R3 individual
-      const { pars, strokeIndexes } = course;
+      const roundCourse = idx === 0 ? c1 : c3;
+      const { pars, strokeIndexes } = roundCourse;
       const roundScores = round.scores.map(s => {
         const computed = computePlayerRound(s.gross || [], s.handicap ?? getPlayerHandicap(players, s.playerId), pars, strokeIndexes);
         return {

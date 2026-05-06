@@ -88,9 +88,8 @@ function showHome() {
   view.classList.add('active');
 
   const players = loadPlayers();
-  const course  = loadCourse();
   const r1 = loadRound(1), r2 = loadRound(2), r3 = loadRound(3);
-  const overall = computeOverall(r1, r2, r3, players, course);
+  const overall = computeOverall(r1, r2, r3, players, loadRoundCourses());
   const setupDone = players.filter(p => p.name.trim()).length === 8;
 
   const rounds = [
@@ -237,7 +236,78 @@ function showSetup() {
   view.classList.add('active');
 
   const players = loadPlayers();
-  const course  = loadCourse();
+  const courses = loadRoundCourses();
+
+  // Build course editor for one round
+  function courseEditor(roundNum) {
+    const c = courses[roundNum - 1];
+    const presetOpts = COURSE_PRESETS.map(p =>
+      `<option value="${p.id}" ${c.presetId === p.id ? 'selected' : ''}>${p.name}${p.location ? ' — ' + p.location : ''}</option>`
+    ).join('');
+
+    return `
+      <div class="card" style="margin-bottom:var(--space-lg)" id="course-card-r${roundNum}">
+        <div class="card-header" style="display:flex;justify-content:space-between;align-items:center">
+          <span>Round ${roundNum} Course</span>
+          <span style="font-weight:400;font-size:11px;opacity:0.8">${['Stableford','Best Ball','Stroke Play'][roundNum-1]}</span>
+        </div>
+        <div class="card-body">
+          <div class="form-group">
+            <label class="form-label">Select Course</label>
+            <select class="form-input" id="preset-r${roundNum}" data-round="${roundNum}">
+              ${presetOpts}
+            </select>
+          </div>
+          ${c.presetId === 'bear-mountain' ? `<p class="badge badge-gold" style="margin-bottom:var(--space-sm);display:inline-block">⚠ Estimated layout — verify par &amp; SI before play</p>` : ''}
+          <div class="form-group">
+            <label class="form-label">Course Name <span style="font-weight:400;font-style:italic">(editable)</span></label>
+            <input class="form-input" type="text" id="course-name-r${roundNum}" value="${escHtml(c.name)}" placeholder="Course name">
+          </div>
+          <details>
+            <summary style="cursor:pointer;font-size:13px;color:var(--color-green);font-weight:600;margin-bottom:var(--space-sm)">
+              Edit Par &amp; Stroke Index ▾
+            </summary>
+            <div class="scorecard-wrapper" style="margin-top:var(--space-sm)">
+              <table class="course-table" id="course-table-r${roundNum}">
+                <thead>
+                  <tr>
+                    <th>Hole</th><th>Par</th><th>SI</th>
+                    <th>Hole</th><th>Par</th><th>SI</th>
+                  </tr>
+                </thead>
+                <tbody>
+                  ${Array.from({length: 9}, (_, i) => `
+                    <tr>
+                      <td class="hole-num">${i+1}</td>
+                      <td><input class="par-input" type="number" inputmode="numeric" min="3" max="5" value="${c.pars[i]}" data-round="${roundNum}" data-hole="${i}" data-field="par"></td>
+                      <td><input class="si-input" type="number" inputmode="numeric" min="1" max="18" value="${c.strokeIndexes[i]}" data-round="${roundNum}" data-hole="${i}" data-field="si"></td>
+                      <td class="hole-num">${i+10}</td>
+                      <td><input class="par-input" type="number" inputmode="numeric" min="3" max="5" value="${c.pars[i+9]}" data-round="${roundNum}" data-hole="${i+9}" data-field="par"></td>
+                      <td><input class="si-input" type="number" inputmode="numeric" min="1" max="18" value="${c.strokeIndexes[i+9]}" data-round="${roundNum}" data-hole="${i+9}" data-field="si"></td>
+                    </tr>
+                  `).join('')}
+                </tbody>
+              </table>
+            </div>
+          </details>
+          <div style="display:grid;grid-template-columns:1fr 1fr;gap:var(--space-md);margin-top:var(--space-md)">
+            <div>
+              <label class="form-label">CTP Hole (par 3)</label>
+              <select class="form-input form-input-sm" id="ctp-r${roundNum}">
+                ${Array.from({length:18}, (_,h) => `<option value="${h+1}" ${c.ctpHoles?.[0] === h+1 ? 'selected' : ''}>Hole ${h+1} (par ${c.pars[h]})</option>`).join('')}
+              </select>
+            </div>
+            <div>
+              <label class="form-label">Long Drive Hole</label>
+              <select class="form-input form-input-sm" id="ld-r${roundNum}">
+                ${Array.from({length:18}, (_,h) => `<option value="${h+1}" ${c.longDriveHoles?.[0] === h+1 ? 'selected' : ''}>Hole ${h+1}</option>`).join('')}
+              </select>
+            </div>
+          </div>
+        </div>
+      </div>
+    `;
+  }
 
   view.innerHTML = `
     <div class="tournament-banner">
@@ -260,74 +330,21 @@ function showSetup() {
               </div>
             `).join('')}
           </div>
-          <div style="margin-top:var(--space-md);display:flex;gap:var(--space-sm)">
+          <div style="margin-top:var(--space-md)">
             <button class="btn btn-primary" id="save-players-btn">Save Players</button>
           </div>
         </div>
       </div>
 
-      <!-- Course -->
-      <div class="section-title">⛳ Course Details</div>
-      <div class="card" style="margin-bottom:var(--space-xl)">
-        <div class="card-body">
-          <div class="form-group">
-            <label class="form-label">Course Name</label>
-            <input class="form-input" type="text" id="course-name" value="${escHtml(course.name)}" placeholder="Course name">
-          </div>
-          <p style="font-size:13px;color:var(--color-gray);margin-bottom:var(--space-sm)">Enter par and stroke index (SI) for each hole. SI 1 = hardest, SI 18 = easiest.</p>
-          <div class="scorecard-wrapper">
-            <table class="course-table" id="course-table">
-              <thead>
-                <tr>
-                  <th>Hole</th>
-                  <th>Par</th>
-                  <th>SI</th>
-                  <th>Hole</th>
-                  <th>Par</th>
-                  <th>SI</th>
-                </tr>
-              </thead>
-              <tbody>
-                ${Array.from({length: 9}, (_, i) => `
-                  <tr>
-                    <td class="hole-num">${i+1}</td>
-                    <td><input class="par-input" type="number" inputmode="numeric" min="3" max="5" value="${course.pars[i]}" data-hole="${i}" data-field="par"></td>
-                    <td><input class="si-input" type="number" inputmode="numeric" min="1" max="18" value="${course.strokeIndexes[i]}" data-hole="${i}" data-field="si"></td>
-                    <td class="hole-num">${i+10}</td>
-                    <td><input class="par-input" type="number" inputmode="numeric" min="3" max="5" value="${course.pars[i+9]}" data-hole="${i+9}" data-field="par"></td>
-                    <td><input class="si-input" type="number" inputmode="numeric" min="1" max="18" value="${course.strokeIndexes[i+9]}" data-hole="${i+9}" data-field="si"></td>
-                  </tr>
-                `).join('')}
-              </tbody>
-            </table>
-          </div>
-        </div>
-      </div>
-
-      <!-- Side Games -->
-      <div class="section-title">🎯 Side Games</div>
-      <div class="card" style="margin-bottom:var(--space-xl)">
-        <div class="card-body">
-          <p style="font-size:13px;color:var(--color-gray);margin-bottom:var(--space-md)">Designate which hole is used for Closest to the Pin (must be a par 3) and Long Drive for each round.</p>
-          <div style="display:grid;grid-template-columns:1fr 1fr 1fr;gap:var(--space-md)">
-            ${[0,1,2].map(i => `
-              <div>
-                <div class="form-label">Round ${i+1} CTP Hole</div>
-                <select class="form-input form-input-sm" id="ctp-r${i+1}">
-                  ${Array.from({length:18}, (_,h) => `<option value="${h+1}" ${course.ctpHoles[i] === h+1 ? 'selected' : ''}>Hole ${h+1} (par ${course.pars[h]})</option>`).join('')}
-                </select>
-                <div class="form-label" style="margin-top:8px">Round ${i+1} Long Drive</div>
-                <select class="form-input form-input-sm" id="ld-r${i+1}">
-                  ${Array.from({length:18}, (_,h) => `<option value="${h+1}" ${course.longDriveHoles[i] === h+1 ? 'selected' : ''}>Hole ${h+1}</option>`).join('')}
-                </select>
-              </div>
-            `).join('')}
-          </div>
-        </div>
-      </div>
+      <!-- Courses (one per round) -->
+      <div class="section-title">⛳ Courses</div>
+      <p style="font-size:13px;color:var(--color-gray);margin-bottom:var(--space-md)">Each round can be played on a different course. Select a preset to auto-fill par and stroke index, then adjust if needed.</p>
+      ${courseEditor(1)}
+      ${courseEditor(2)}
+      ${courseEditor(3)}
 
       <div style="display:flex;gap:var(--space-sm);flex-wrap:wrap;margin-bottom:var(--space-xl)">
-        <button class="btn btn-gold btn-lg" id="save-course-btn">Save All Settings</button>
+        <button class="btn btn-gold btn-lg" id="save-all-btn">Save All Settings</button>
         <button class="btn btn-outline" onclick="navigate('#home')">← Back to Home</button>
       </div>
 
@@ -341,7 +358,34 @@ function showSetup() {
     </div>
   `;
 
-  // Bind save players
+  // Preset picker — repopulate par/SI table when preset changes
+  [1,2,3].forEach(n => {
+    const sel = document.getElementById(`preset-r${n}`);
+    sel.addEventListener('change', () => {
+      const preset = COURSE_PRESETS.find(p => p.id === sel.value);
+      if (!preset) return;
+      document.getElementById(`course-name-r${n}`).value = preset.name;
+      document.querySelectorAll(`[data-round="${n}"][data-field="par"]`).forEach(el => {
+        el.value = preset.pars[+el.dataset.hole];
+      });
+      document.querySelectorAll(`[data-round="${n}"][data-field="si"]`).forEach(el => {
+        el.value = preset.strokeIndexes[+el.dataset.hole];
+      });
+      // Update CTP/LD dropdowns with new pars
+      const ctpSel = document.getElementById(`ctp-r${n}`);
+      const ldSel  = document.getElementById(`ld-r${n}`);
+      if (ctpSel) {
+        const firstP3 = preset.pars.findIndex(p => p === 3);
+        Array.from(ctpSel.options).forEach((opt, h) => {
+          opt.text = `Hole ${h+1} (par ${preset.pars[h]})`;
+        });
+        ctpSel.value = firstP3 >= 0 ? firstP3 + 1 : 2;
+      }
+      if (ldSel) ldSel.value = 1;
+    });
+  });
+
+  // Save players
   document.getElementById('save-players-btn').addEventListener('click', () => {
     const updated = players.map((p, i) => ({
       ...p,
@@ -352,9 +396,9 @@ function showSetup() {
     showToast('Players saved!');
   });
 
-  // Bind save course
-  document.getElementById('save-course-btn').addEventListener('click', () => {
-    // Save players first
+  // Save everything
+  document.getElementById('save-all-btn').addEventListener('click', () => {
+    // Players
     const updatedPlayers = players.map((p, i) => ({
       ...p,
       name: document.querySelector(`[data-player-name="${i}"]`).value.trim(),
@@ -362,21 +406,26 @@ function showSetup() {
     }));
     savePlayers(updatedPlayers);
 
-    const pars = new Array(18);
-    const sis  = new Array(18);
-    document.querySelectorAll('[data-field="par"]').forEach(el => { pars[+el.dataset.hole] = +el.value || 4; });
-    document.querySelectorAll('[data-field="si"]').forEach(el  => { sis[+el.dataset.hole]  = +el.value || 1; });
-
-    const ctpHoles = [1,2,3].map(n => parseInt(document.getElementById(`ctp-r${n}`)?.value) || 1);
-    const ldHoles  = [1,2,3].map(n => parseInt(document.getElementById(`ld-r${n}`)?.value)  || 1);
-
-    saveCourse({
-      name: document.getElementById('course-name').value.trim() || 'Victoria Golf Club',
-      pars,
-      strokeIndexes: sis,
-      ctpHoles,
-      longDriveHoles: ldHoles,
+    // Per-round courses
+    const updatedCourses = [1,2,3].map(n => {
+      const pars = new Array(18);
+      const sis  = new Array(18);
+      document.querySelectorAll(`[data-round="${n}"][data-field="par"]`).forEach(el => { pars[+el.dataset.hole] = +el.value || 4; });
+      document.querySelectorAll(`[data-round="${n}"][data-field="si"]`).forEach(el  => { sis[+el.dataset.hole]  = +el.value || 1; });
+      const ctp = parseInt(document.getElementById(`ctp-r${n}`)?.value) || 1;
+      const ld  = parseInt(document.getElementById(`ld-r${n}`)?.value)  || 1;
+      return {
+        presetId:      document.getElementById(`preset-r${n}`)?.value || 'custom',
+        name:          document.getElementById(`course-name-r${n}`)?.value.trim() || 'Course',
+        pars,
+        strokeIndexes: sis,
+        ctpHoles:      [ctp, ctp, ctp],
+        longDriveHoles:[ld,  ld,  ld],
+      };
     });
+    saveRoundCourses(updatedCourses);
+    // Keep legacy key in sync with round 1 for any fallback callers
+    saveCourse(updatedCourses[0]);
     showToast('Settings saved!');
   });
 
@@ -397,7 +446,7 @@ function showRound(num) {
   view.classList.add('active');
 
   const players = loadPlayers();
-  const course  = loadCourse();
+  const course  = loadCourseForRound(num);
   const round   = loadRound(num);
   const isStableford = num === 1;
 
@@ -591,7 +640,7 @@ function saveHoleScore(roundNum, playerId, holeIndex, gross, handicap) {
   saveRound(roundNum, round);
 
   // Update computed cells live
-  const course = loadCourse();
+  const course = loadCourseForRound(roundNum);
   const players = loadPlayers();
   const player = getPlayer(players, playerId);
   const computed = computePlayerRound(ps.gross, player.handicap, course.pars, course.strokeIndexes);
@@ -621,7 +670,7 @@ function showRound2() {
   view.classList.add('active');
 
   const players = loadPlayers();
-  const course  = loadCourse();
+  const course  = loadCourseForRound(2);
   const round   = loadRound(2);
   const namedPlayers = players.filter(p => p.name.trim());
 
@@ -930,14 +979,14 @@ function showLeaderboard() {
   view.classList.add('active');
 
   const players = loadPlayers();
-  const course  = loadCourse();
+  const courses = loadRoundCourses();
   const r1 = loadRound(1), r2 = loadRound(2), r3 = loadRound(3);
   const namedPlayers = players.filter(p => p.name.trim());
 
   let activeTab = 'overall';
 
   function render() {
-    const overall = computeOverall(r1, r2, r3, players, course);
+    const overall = computeOverall(r1, r2, r3, players, courses);
 
     function overallTable() {
       if (overall.length === 0) return `<div class="empty-state"><div class="empty-state-icon">🏆</div><div class="empty-state-title">No scores yet</div><p>Enter scores in the rounds to see standings.</p></div>`;
@@ -983,10 +1032,11 @@ function showLeaderboard() {
         return `<div class="empty-state"><div class="empty-state-title">Round ${num} not started</div></div>`;
       }
       const isStableford = num === 1;
+      const rc = courses[num - 1];
 
       if (num === 2) {
         const teamScores = rd.scores.map(ts => {
-          const computed = computeTeamRound(ts, namedPlayers, course.pars, course.strokeIndexes);
+          const computed = computeTeamRound(ts, namedPlayers, rc.pars, rc.strokeIndexes);
           return { ts, computed };
         }).sort((a,b) => (a.computed.total??999) - (b.computed.total??999));
 
@@ -1017,7 +1067,7 @@ function showLeaderboard() {
 
       const playerScores = rd.scores.map(s => {
         const p = getPlayer(namedPlayers, s.playerId);
-        const computed = computePlayerRound(s.gross||[], p.handicap, course.pars, course.strokeIndexes);
+        const computed = computePlayerRound(s.gross||[], p.handicap, rc.pars, rc.strokeIndexes);
         return { s, p, computed, metric: isStableford ? computed.stablefordTotal : computed.netTotal };
       }).sort((a,b) => isStableford ? (b.metric??-1)-(a.metric??-1) : (a.metric??999)-(b.metric??999));
 
@@ -1075,10 +1125,10 @@ function showPayouts() {
   view.classList.add('active');
 
   const players  = loadPlayers();
-  const course   = loadCourse();
+  const courses  = loadRoundCourses();
   const r1 = loadRound(1), r2 = loadRound(2), r3 = loadRound(3);
-  const overall  = computeOverall(r1, r2, r3, players, course);
-  const payouts  = computePayouts(overall, r1, r2, r3, players, course);
+  const overall  = computeOverall(r1, r2, r3, players, courses);
+  const payouts  = computePayouts(overall, r1, r2, r3, players, courses);
   const namedPlayers = players.filter(p => p.name.trim());
 
   function playerOpts(selected) {
@@ -1096,7 +1146,7 @@ function showPayouts() {
           <span class="payout-pool-total">$${pool}</span>
         </div>
         ${rd.status === 'complete'
-          ? buildRoundWinnerBlock(rNum, rd, players, course, pool)
+          ? buildRoundWinnerBlock(rNum, rd, players, courses[rNum-1], pool)
           : `<div class="payout-row"><span class="payout-label">Not finalized</span><span class="payout-amount unclaimed">–</span></div>`}
       </div>
     `;
@@ -1132,10 +1182,11 @@ function showPayouts() {
         </div>
         ${[1,2,3].map(n => {
           const rd = [r1,r2,r3][n-1];
+          const rc = courses[n-1];
           return `
             <div class="payout-row">
               <div>
-                <div class="payout-label">R${n} Closest to Pin (Hole ${course.ctpHoles[n-1]})</div>
+                <div class="payout-label">R${n} Closest to Pin (Hole ${rc.ctpHoles?.[0] ?? '?'})</div>
                 <select class="side-game-select" id="ctp-winner-r${n}" data-round="${n}" data-type="ctp">
                   ${playerOpts(rd.ctpWinner)}
                 </select>
@@ -1144,7 +1195,7 @@ function showPayouts() {
             </div>
             <div class="payout-row">
               <div>
-                <div class="payout-label">R${n} Long Drive (Hole ${course.longDriveHoles[n-1]})</div>
+                <div class="payout-label">R${n} Long Drive (Hole ${rc.longDriveHoles?.[0] ?? '?'})</div>
                 <select class="side-game-select" id="ld-winner-r${n}" data-round="${n}" data-type="ld">
                   ${playerOpts(rd.longDriveWinner)}
                 </select>
