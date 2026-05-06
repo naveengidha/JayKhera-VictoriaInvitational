@@ -1065,6 +1065,204 @@ body {
   margin-bottom: var(--space-sm);
 }
 
+/* ── Hole-by-Hole Score Entry ── */
+
+.hole-dots {
+  display: flex;
+  flex-wrap: wrap;
+  justify-content: center;
+  gap: 5px;
+  padding: var(--space-sm) var(--space-md);
+  margin-bottom: 4px;
+}
+
+.hole-dot {
+  width: 12px;
+  height: 12px;
+  border-radius: 50%;
+  background: var(--color-cream-dark);
+  border: 1.5px solid var(--color-gray-light);
+  cursor: pointer;
+  transition: background 0.2s, border-color 0.2s, transform 0.1s;
+  flex-shrink: 0;
+}
+
+.hole-dot.done {
+  background: var(--color-green);
+  border-color: var(--color-green);
+}
+
+.hole-dot.current {
+  background: var(--color-gold);
+  border-color: var(--color-gold);
+  transform: scale(1.4);
+}
+
+.hbh-hole-card {
+  display: flex;
+  justify-content: center;
+  gap: var(--space-md);
+  background: var(--color-green);
+  color: var(--color-white);
+  border-radius: var(--radius-lg);
+  padding: var(--space-md) var(--space-lg);
+  margin-bottom: var(--space-md);
+  align-items: center;
+}
+
+.hbh-hole-stat {
+  text-align: center;
+  min-width: 48px;
+}
+
+.hbh-hole-num {
+  font-family: var(--font-heading);
+  font-size: 2rem;
+  font-weight: 700;
+  line-height: 1;
+  color: var(--color-gold-light);
+}
+
+.hbh-hole-label {
+  font-size: 10px;
+  letter-spacing: 1.5px;
+  text-transform: uppercase;
+  color: rgba(255,255,255,0.65);
+  margin-top: 2px;
+}
+
+.hbh-table {
+  width: 100%;
+  border-collapse: collapse;
+  font-size: 14px;
+}
+
+.hbh-table thead th {
+  background: var(--color-green-dark);
+  color: var(--color-gold-light);
+  font-size: 11px;
+  letter-spacing: 1px;
+  text-transform: uppercase;
+  padding: 8px 6px;
+  text-align: center;
+  font-weight: 600;
+}
+
+.hbh-table thead th:first-child {
+  text-align: left;
+  padding-left: 12px;
+}
+
+.hbh-player-row,
+.best-ball-row-a,
+.best-ball-row-b,
+.best-ball-row-best {
+  border-bottom: 1px solid var(--color-cream-dark);
+}
+
+.best-ball-row-a td {
+  border-top: 2px solid var(--color-cream-dark);
+}
+
+.best-ball-row-best {
+  background: rgba(201, 162, 39, 0.08);
+}
+
+.hbh-player-row:last-child,
+.best-ball-row-best:last-child {
+  border-bottom: none;
+}
+
+.hbh-name {
+  padding: 10px 6px 10px 12px;
+  font-weight: 600;
+  color: var(--color-black);
+  white-space: nowrap;
+  max-width: 120px;
+  overflow: hidden;
+  text-overflow: ellipsis;
+}
+
+.hbh-hdcp {
+  text-align: center;
+  padding: 10px 4px;
+  font-size: 12px;
+  color: var(--color-green);
+  font-weight: 700;
+  letter-spacing: -1px;
+  white-space: nowrap;
+}
+
+.hbh-gross-cell {
+  text-align: center;
+  padding: 6px 4px;
+}
+
+.hbh-net-cell,
+.hbh-metric-cell {
+  text-align: center;
+  padding: 10px 6px;
+  font-size: 14px;
+  min-width: 36px;
+}
+
+.hbh-input {
+  width: 52px;
+  height: 44px;
+  text-align: center;
+  font-size: 18px;
+  font-weight: 700;
+  border: 2px solid var(--color-cream-dark);
+  border-radius: var(--radius-md);
+  background: var(--color-white);
+  color: var(--color-black);
+  -webkit-appearance: none;
+  appearance: none;
+  -moz-appearance: textfield;
+  transition: border-color 0.15s, box-shadow 0.15s;
+}
+
+.hbh-input::-webkit-inner-spin-button,
+.hbh-input::-webkit-outer-spin-button {
+  -webkit-appearance: none;
+}
+
+.hbh-input:focus {
+  outline: none;
+  border-color: var(--color-green);
+  box-shadow: 0 0 0 3px rgba(45, 90, 39, 0.18);
+}
+
+.hbh-input:not(:placeholder-shown) {
+  border-color: var(--color-green);
+}
+
+.hbh-nav {
+  display: flex;
+  gap: var(--space-sm);
+  justify-content: space-between;
+  padding: var(--space-md) 0 var(--space-xl);
+}
+
+.hbh-nav-btn {
+  flex: 1;
+  font-size: 15px;
+  padding: 12px 8px;
+}
+
+.stableford-pts {
+  display: inline-block;
+  font-weight: 700;
+  font-size: 14px;
+  min-width: 24px;
+  text-align: center;
+}
+.stableford-pts.pts-4 { color: var(--color-eagle); }
+.stableford-pts.pts-3 { color: var(--color-birdie); }
+.stableford-pts.pts-2 { color: var(--color-par); }
+.stableford-pts.pts-1 { color: var(--color-bogey); }
+.stableford-pts.pts-0 { color: var(--color-double); }
+
 /* ── Print ── */
 @media print {
   #sidebar, #bottom-nav, .btn, .nav-item, .no-print { display: none !important; }

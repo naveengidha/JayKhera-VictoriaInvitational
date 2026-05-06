@@ -445,85 +445,250 @@ function showRound(num) {
   const view = document.getElementById(viewId);
   view.classList.add('active');
 
-  const players = loadPlayers();
-  const course  = loadCourseForRound(num);
-  const round   = loadRound(num);
+  const players      = loadPlayers();
+  const course       = loadCourseForRound(num);
   const isStableford = num === 1;
-
   const namedPlayers = players.filter(p => p.name.trim());
 
-  let activePlayer = namedPlayers[0]?.id ?? 0;
+  // Start on first incomplete hole, or hole 1
+  function firstIncompleteHole() {
+    const rd = loadRound(num);
+    for (let h = 0; h < 18; h++) {
+      const anyMissing = namedPlayers.some(p => {
+        const ps = rd.scores.find(s => s.playerId === p.id);
+        return !ps || !ps.gross[h];
+      });
+      if (anyMissing) return h;
+    }
+    return 0;
+  }
+
+  let currentHole = firstIncompleteHole();
 
   function render() {
-    const rd = loadRound(num);
-    const tabs = namedPlayers.map(p => {
-      const ps = rd.scores.find(s => s.playerId === p.id);
-      const complete = ps && (ps.gross || []).filter(g => g > 0).length === 18;
+    const rd   = loadRound(num);
+    const h    = currentHole;
+    const par  = course.pars[h];
+    const si   = course.strokeIndexes[h];
+
+    // Build one row per player
+    const playerRows = namedPlayers.map(p => {
+      const ps     = rd.scores.find(s => s.playerId === p.id);
+      const gross  = ps?.gross?.[h] || '';
+      const strokes = getStrokesReceived(p.handicap, si);
+      const net    = gross ? cappedNet(gross, p.handicap, si, par) : null;
+      const result = scoreResult(net, par);
+      const metric = isStableford
+        ? (net != null ? stablefordPoints(net, par) : null)
+        : net;
+
+      let metricHtml = '–';
+      if (metric != null) {
+        if (isStableford) {
+          metricHtml = `<span class="stableford-pts pts-${metric}">${metric}</span>`;
+        } else {
+          metricHtml = `<span class="score-badge ${result}">${metric}</span>`;
+        }
+      }
+
       return `
-        <button class="player-tab ${complete ? 'has-scores complete' : ''} ${p.id === activePlayer ? 'active' : ''}"
-                onclick="setActivePlayer_R${num}(${p.id})">
-          ${p.name || 'P'+(p.id+1)}
-          <span class="tab-check">✓</span>
-        </button>
+        <tr class="hbh-player-row" data-player-id="${p.id}">
+          <td class="hbh-name">${p.name || 'P'+(p.id+1)}</td>
+          <td class="hbh-hdcp">${strokes > 0 ? '+'.repeat(strokes) : '–'}</td>
+          <td class="hbh-gross-cell">
+            <input class="score-input hbh-input" type="number" inputmode="numeric"
+              pattern="[0-9]*" min="1" max="15"
+              value="${gross}" placeholder="–"
+              data-hole="${h}" data-round="${num}" data-player-id="${p.id}"
+              data-handicap="${p.handicap}">
+          </td>
+          <td class="hbh-net-cell" data-player-id="${p.id}">${net != null ? `<span class="score-badge ${result}">${net}</span>` : '–'}</td>
+          <td class="hbh-metric-cell" data-player-id="${p.id}">${metricHtml}</td>
+        </tr>
       `;
     }).join('');
 
-    const ps = rd.scores.find(s => s.playerId === activePlayer) || { gross: new Array(18).fill(null) };
-    const player = getPlayer(namedPlayers, activePlayer);
-    const computed = computePlayerRound(ps.gross || new Array(18).fill(null), player.handicap, course.pars, course.strokeIndexes);
+    // Progress: count holes where ALL players have a score
+    const filledHoles = Array.from({length:18}, (_,i) =>
+      namedPlayers.every(p => {
+        const ps = rd.scores.find(s => s.playerId === p.id);
+        return ps?.gross?.[i] > 0;
+      })
+    );
+    const filled = filledHoles.filter(Boolean).length;
 
-    const completedCount = namedPlayers.filter(p => {
-      const s = rd.scores.find(sc => sc.playerId === p.id);
-      return s && (s.gross || []).filter(g => g > 0).length === 18;
-    }).length;
-    const progress = Math.round((completedCount / namedPlayers.length) * 100);
+    // Hole progress dots
+    const dots = Array.from({length:18}, (_,i) => {
+      const done = filledHoles[i];
+      const active = i === h;
+      return `<span class="hole-dot ${done?'done':''} ${active?'current':''}" onclick="goToHole_R${num}(${i})" title="Hole ${i+1}"></span>`;
+    }).join('');
 
     view.innerHTML = `
       <div class="tournament-banner">
-        <div class="banner-eyebrow">Scorecard Entry</div>
-        <div class="banner-title">Round ${num} — ${isStableford ? 'Stableford' : 'Stroke Play'}</div>
-        <div class="banner-subtitle">${isStableford ? 'Individual Net Stableford' : 'Individual Net Stroke Play'}</div>
+        <div class="banner-eyebrow">Round ${num} — ${isStableford ? 'Stableford' : 'Stroke Play'}</div>
+        <div class="banner-title">Hole ${h+1} of 18</div>
+        <div class="banner-subtitle">${course.name}</div>
       </div>
-      <div class="page-body">
-        <div style="margin-bottom:var(--space-md)">
-          <div style="display:flex;justify-content:space-between;align-items:center;margin-bottom:6px">
-            <span style="font-size:13px;color:var(--color-gray)">${completedCount}/${namedPlayers.length} players complete</span>
-            <span style="font-size:13px;font-weight:700;color:var(--color-green)">${progress}%</span>
+      <div class="page-body" style="padding-top:var(--space-md)">
+
+        <!-- Hole dots nav -->
+        <div class="hole-dots">${dots}</div>
+        <div style="font-size:12px;color:var(--color-gray);text-align:center;margin-bottom:var(--space-md)">${filled}/18 holes complete</div>
+
+        <!-- Hole info card -->
+        <div class="hbh-hole-card">
+          <div class="hbh-hole-stat">
+            <div class="hbh-hole-num">${h+1}</div>
+            <div class="hbh-hole-label">HOLE</div>
           </div>
-          <div class="progress-bar"><div class="progress-fill" style="width:${progress}%"></div></div>
+          <div class="hbh-hole-stat">
+            <div class="hbh-hole-num">${par}</div>
+            <div class="hbh-hole-label">PAR</div>
+          </div>
+          <div class="hbh-hole-stat">
+            <div class="hbh-hole-num">${si}</div>
+            <div class="hbh-hole-label">SI</div>
+          </div>
+          <div class="hbh-hole-stat" style="font-size:11px;color:var(--color-gray-light)">
+            ${course.ctpHoles?.[0] === h+1 ? '<span class="badge badge-gold">CTP</span>' : ''}
+            ${course.longDriveHoles?.[0] === h+1 ? '<span class="badge badge-green">LD</span>' : ''}
+          </div>
         </div>
 
-        <div class="player-tabs" id="player-tabs-r${num}">${tabs}</div>
-
+        <!-- Score entry table -->
         <div class="card" style="margin-bottom:var(--space-md)">
-          <div class="card-header" style="display:flex;justify-content:space-between;align-items:center">
-            <span>${player.name || 'Player '+(activePlayer+1)}</span>
-            <span style="font-weight:400;font-size:12px">Hdcp: ${player.handicap}</span>
+          <div class="card-header">
+            <span>Enter Gross Scores</span>
+            <span style="font-weight:400;font-size:11px">${isStableford ? 'Net Stableford Points' : 'Net Score'}</span>
           </div>
-          <div class="card-body" style="padding:var(--space-sm)">
-            <div class="scorecard-wrapper">
-              ${buildScorecardTable(computed, ps.gross || [], course, player.handicap, isStableford, num, activePlayer)}
-            </div>
+          <div class="card-body" style="padding:0">
+            <table class="hbh-table" id="hbh-table-r${num}">
+              <thead>
+                <tr>
+                  <th style="text-align:left">Player</th>
+                  <th>Hdp</th>
+                  <th>Gross</th>
+                  <th>Net</th>
+                  <th>${isStableford ? 'Pts' : 'Score'}</th>
+                </tr>
+              </thead>
+              <tbody>${playerRows}</tbody>
+            </table>
           </div>
         </div>
 
-        <div style="display:flex;gap:var(--space-sm);flex-wrap:wrap;margin-bottom:var(--space-xl)">
-          ${rd.status !== 'complete' ? `<button class="btn btn-gold" id="finalize-r${num}">Finalize Round ${num}</button>` : `<span class="badge badge-green">✓ Round ${num} Complete</span>`}
+        <!-- Prev / Next navigation -->
+        <div class="hbh-nav">
+          <button class="btn btn-outline hbh-nav-btn" ${h === 0 ? 'disabled' : ''} onclick="goToHole_R${num}(${h-1})">
+            ← Hole ${h}
+          </button>
+          <button class="btn btn-gold hbh-nav-btn" ${h === 17 ? '' : ''} onclick="goToHole_R${num}(${h+1 < 18 ? h+1 : h})" ${h===17?'style="opacity:0.4"':''}>
+            ${h < 17 ? `Hole ${h+2} →` : 'Last Hole'}
+          </button>
+        </div>
+
+        <div style="display:flex;gap:var(--space-sm);flex-wrap:wrap;margin-top:var(--space-md);margin-bottom:var(--space-xl)">
+          ${rd.status !== 'complete'
+            ? `<button class="btn btn-primary" id="finalize-r${num}">Finalize Round ${num}</button>`
+            : `<span class="badge badge-green">✓ Round ${num} Complete</span>`}
           <button class="btn btn-outline" onclick="navigate('#home')">← Home</button>
         </div>
       </div>
     `;
 
-    bindScorecardEvents(num, activePlayer, player, course, isStableford);
+    bindHoleInputs(num, h, namedPlayers, course, isStableford);
 
     const finalizeBtn = document.getElementById(`finalize-r${num}`);
     if (finalizeBtn) {
-      finalizeBtn.addEventListener('click', () => finalizeRound(num, namedPlayers, course, isStableford));
+      finalizeBtn.addEventListener('click', () => {
+        const rd2 = loadRound(num);
+        rd2.status = 'complete';
+        saveRound(num, rd2);
+        showToast(`Round ${num} finalized!`);
+        navigate('#leaderboard');
+      });
     }
+
+    // Auto-focus first empty input
+    const firstEmpty = view.querySelector('.hbh-input:not([value]):not([value="0"]), .hbh-input[value=""]');
+    if (firstEmpty) setTimeout(() => firstEmpty.focus(), 80);
   }
 
-  window[`setActivePlayer_R${num}`] = (id) => { activePlayer = id; render(); };
+  window[`goToHole_R${num}`] = (h) => {
+    if (h >= 0 && h < 18) { currentHole = h; render(); }
+  };
+
   render();
+}
+
+function bindHoleInputs(roundNum, holeIndex, namedPlayers, course, isStableford) {
+  document.querySelectorAll(`.hbh-input[data-round="${roundNum}"]`).forEach(input => {
+    // Save on input (debounced) and update cells inline
+    input.addEventListener('input', () => {
+      const pid      = +input.dataset.playerId;
+      const handicap = +input.dataset.handicap;
+      const gross    = parseInt(input.value) || null;
+      const h        = +input.dataset.hole;
+      const par      = course.pars[h];
+      const si       = course.strokeIndexes[h];
+
+      // Update net + metric cell immediately (no debounce needed for display)
+      const net    = gross ? cappedNet(gross, handicap, si, par) : null;
+      const result = scoreResult(net, par);
+      const netCell    = document.querySelector(`#view-round${roundNum} .hbh-net-cell[data-player-id="${pid}"]`);
+      const metricCell = document.querySelector(`#view-round${roundNum} .hbh-metric-cell[data-player-id="${pid}"]`);
+
+      if (netCell) {
+        netCell.innerHTML = net != null ? `<span class="score-badge ${result}">${net}</span>` : '–';
+      }
+      if (metricCell) {
+        if (net != null) {
+          if (isStableford) {
+            const pts = stablefordPoints(net, par);
+            metricCell.innerHTML = `<span class="stableford-pts pts-${pts}">${pts}</span>`;
+          } else {
+            metricCell.innerHTML = `<span class="score-badge ${result}">${net}</span>`;
+          }
+        } else {
+          metricCell.innerHTML = '–';
+        }
+      }
+
+      // Debounce the localStorage write
+      clearTimeout(scoreDebounceTimers[`${roundNum}-${pid}-${h}`]);
+      scoreDebounceTimers[`${roundNum}-${pid}-${h}`] = setTimeout(() => {
+        saveHoleScore(roundNum, pid, h, gross, handicap);
+        // Update hole dot
+        updateHoleDot(roundNum, h, namedPlayers);
+      }, 400);
+    });
+
+    // On Enter / Tab — move to next player row or next hole
+    input.addEventListener('keydown', e => {
+      if (e.key === 'Enter' || e.key === 'Tab') {
+        e.preventDefault();
+        const rows = [...document.querySelectorAll(`#view-round${roundNum} .hbh-input`)];
+        const idx  = rows.indexOf(input);
+        if (idx < rows.length - 1) {
+          rows[idx + 1].focus();
+          rows[idx + 1].select();
+        } else if (holeIndex < 17) {
+          window[`goToHole_R${roundNum}`](holeIndex + 1);
+        }
+      }
+    });
+  });
+}
+
+function updateHoleDot(roundNum, holeIndex, namedPlayers) {
+  const rd = loadRound(roundNum);
+  const allFilled = namedPlayers.every(p => {
+    const ps = rd.scores.find(s => s.playerId === p.id);
+    return ps?.gross?.[holeIndex] > 0;
+  });
+  const dot = document.querySelector(`#view-round${roundNum} .hole-dot:nth-child(${holeIndex + 1})`);
+  if (dot) dot.classList.toggle('done', allFilled);
 }
 
 function buildScorecardTable(computed, grossScores, course, handicap, isStableford, roundNum, playerId) {
@@ -669,14 +834,28 @@ function showRound2() {
   const view = document.getElementById('view-round2');
   view.classList.add('active');
 
-  const players = loadPlayers();
-  const course  = loadCourseForRound(2);
-  const round   = loadRound(2);
+  const players      = loadPlayers();
+  const course       = loadCourseForRound(2);
+  const round        = loadRound(2);
   const namedPlayers = players.filter(p => p.name.trim());
 
-  let activeTeam = 0;
-  let subView = round.teams.length > 0 && round.status !== 'not_started' ? 'scorecard' : 'teams';
+  let subView = round.status !== 'not_started' ? 'scorecard' : 'teams';
 
+  function firstIncompleteHole() {
+    const rd = loadRound(2);
+    for (let h = 0; h < 18; h++) {
+      const anyMissing = rd.teams.some(team => {
+        const ts = rd.scores.find(s => s.teamId === team.id);
+        return !ts || !ts.playerScores[0]?.gross?.[h] || !ts.playerScores[1]?.gross?.[h];
+      });
+      if (anyMissing) return h;
+    }
+    return 0;
+  }
+
+  let currentHole = firstIncompleteHole();
+
+  // ── Team Setup ──
   function renderTeamSetup() {
     const rd = loadRound(2);
     view.innerHTML = `
@@ -715,31 +894,25 @@ function showRound2() {
       [0,1,2,3].forEach(i => {
         const selA = document.getElementById(`team-${i}-p0`);
         const selB = document.getElementById(`team-${i}-p1`);
-        if (selA && selB) {
-          rd2.teams[i] = { id: i, players: [+selA.value, +selB.value] };
-        }
+        if (selA && selB) rd2.teams[i] = { id: i, players: [+selA.value, +selB.value] };
       });
       if (rd2.status === 'not_started') rd2.status = 'in_progress';
       saveRound(2, rd2);
       subView = 'scorecard';
+      currentHole = 0;
       renderScorecard();
     });
 
-    // Live update team selects
     document.querySelectorAll('.team-player-select').forEach(sel => {
       sel.addEventListener('change', () => {
         const rd2 = loadRound(2);
-        const teamIdx = +sel.dataset.team;
-        const slot = +sel.dataset.slot;
-        if (!rd2.teams[teamIdx]) rd2.teams[teamIdx] = { id: teamIdx, players: [0,1] };
-        rd2.teams[teamIdx].players[slot] = +sel.value;
+        rd2.teams[+sel.dataset.team].players[+sel.dataset.slot] = +sel.value;
         saveRound(2, rd2);
       });
     });
   }
 
   function buildTeamSlot(team, players) {
-    const opts = players.map(p => `<option value="${p.id}">${p.name || 'Player '+(p.id+1)}</option>`).join('');
     return `
       <div class="team-card">
         <div class="team-card-label">Team ${team.id + 1}</div>
@@ -757,82 +930,133 @@ function showRound2() {
     `;
   }
 
+  // ── Hole-by-hole scorecard ──
   function renderScorecard() {
-    const rd = loadRound(2);
-    const team = rd.teams[activeTeam];
-    const playerA = getPlayer(namedPlayers, team.players[0]);
-    const playerB = getPlayer(namedPlayers, team.players[1]);
+    const rd  = loadRound(2);
+    const h   = currentHole;
+    const par = course.pars[h];
+    const si  = course.strokeIndexes[h];
 
-    let tscore = rd.scores.find(s => s.teamId === activeTeam);
-    if (!tscore) {
-      tscore = {
-        teamId: activeTeam,
-        playerScores: [
-          { playerId: team.players[0], gross: new Array(18).fill(null) },
-          { playerId: team.players[1], gross: new Array(18).fill(null) },
-        ],
-      };
-    }
+    // Build 2 rows per team (player A + player B) plus a best ball row
+    const teamRows = rd.teams.map(team => {
+      const pA = getPlayer(namedPlayers, team.players[0]);
+      const pB = getPlayer(namedPlayers, team.players[1]);
+      const ts = rd.scores.find(s => s.teamId === team.id);
+      const gA = ts?.playerScores[0]?.gross?.[h] || '';
+      const gB = ts?.playerScores[1]?.gross?.[h] || '';
+      const stA = getStrokesReceived(pA.handicap, si);
+      const stB = getStrokesReceived(pB.handicap, si);
+      const nA  = gA ? cappedNet(gA, pA.handicap, si, par) : null;
+      const nB  = gB ? cappedNet(gB, pB.handicap, si, par) : null;
+      const bb  = (nA != null && nB != null) ? Math.min(nA, nB) : (nA ?? nB);
+      const resA  = scoreResult(nA, par);
+      const resB  = scoreResult(nB, par);
+      const resBB = scoreResult(bb, par);
 
-    const pA = tscore.playerScores[0];
-    const pB = tscore.playerScores[1];
-    const computedA = computePlayerRound(pA.gross || [], playerA.handicap, course.pars, course.strokeIndexes);
-    const computedB = computePlayerRound(pB.gross || [], playerB.handicap, course.pars, course.strokeIndexes);
-    const teamResult = computeTeamRound(tscore, namedPlayers, course.pars, course.strokeIndexes);
-
-    const completedTeams = rd.teams.filter(t => {
-      const ts = rd.scores.find(s => s.teamId === t.id);
-      return ts && ts.playerScores.every(ps => (ps.gross||[]).filter(g=>g>0).length === 18);
-    }).length;
-
-    const teamTabs = rd.teams.map((t, i) => {
-      const ts = rd.scores.find(s => s.teamId === t.id);
-      const done = ts && ts.playerScores.every(ps => (ps.gross||[]).filter(g=>g>0).length === 18);
-      const pNames = t.players.map(pid => getPlayer(namedPlayers, pid).name || 'P'+(pid+1)).join(' / ');
       return `
-        <button class="player-tab ${done ? 'has-scores complete' : ''} ${i === activeTeam ? 'active' : ''}"
-                onclick="setActiveTeam(${i})">
-          Team ${i+1}: ${pNames}
-          <span class="tab-check">✓</span>
-        </button>
+        <tr class="best-ball-row-a">
+          <td rowspan="3" class="hbh-name" style="font-size:12px;font-weight:700;color:var(--color-gold)">T${team.id+1}</td>
+          <td class="hbh-name" style="font-size:13px">${pA.name||'P'+(pA.id+1)}</td>
+          <td class="hbh-hdcp">${stA > 0 ? '+'.repeat(stA) : '–'}</td>
+          <td class="hbh-gross-cell">
+            <input class="score-input hbh-input" type="number" inputmode="numeric" pattern="[0-9]*" min="1" max="15"
+              value="${gA}" placeholder="–"
+              data-hole="${h}" data-team-id="${team.id}" data-slot="0"
+              data-handicap="${pA.handicap}" data-par="${par}" data-si="${si}">
+          </td>
+          <td class="hbh-net-cell r2-net-cell" data-team-id="${team.id}" data-slot="0">${nA != null ? `<span class="score-badge ${resA}">${nA}</span>` : '–'}</td>
+        </tr>
+        <tr class="best-ball-row-b">
+          <td class="hbh-name" style="font-size:13px">${pB.name||'P'+(pB.id+1)}</td>
+          <td class="hbh-hdcp">${stB > 0 ? '+'.repeat(stB) : '–'}</td>
+          <td class="hbh-gross-cell">
+            <input class="score-input hbh-input" type="number" inputmode="numeric" pattern="[0-9]*" min="1" max="15"
+              value="${gB}" placeholder="–"
+              data-hole="${h}" data-team-id="${team.id}" data-slot="1"
+              data-handicap="${pB.handicap}" data-par="${par}" data-si="${si}">
+          </td>
+          <td class="hbh-net-cell r2-net-cell" data-team-id="${team.id}" data-slot="1">${nB != null ? `<span class="score-badge ${resB}">${nB}</span>` : '–'}</td>
+        </tr>
+        <tr class="best-ball-row-best">
+          <td colspan="3" style="font-size:11px;letter-spacing:1px;padding-left:8px">BEST BALL</td>
+          <td class="r2-bb-cell" data-team-id="${team.id}">${bb != null ? `<span class="score-badge ${resBB}" style="color:var(--color-gold-light)">${bb}</span>` : '–'}</td>
+        </tr>
       `;
+    }).join('');
+
+    // Hole progress dots
+    const filledHoles = Array.from({length:18}, (_,i) =>
+      rd.teams.every(team => {
+        const ts = rd.scores.find(s => s.teamId === team.id);
+        return ts?.playerScores[0]?.gross?.[i] > 0 && ts?.playerScores[1]?.gross?.[i] > 0;
+      })
+    );
+    const filled = filledHoles.filter(Boolean).length;
+    const dots = Array.from({length:18}, (_,i) => {
+      return `<span class="hole-dot ${filledHoles[i]?'done':''} ${i===h?'current':''}" onclick="goToHoleR2(${i})" title="Hole ${i+1}"></span>`;
     }).join('');
 
     view.innerHTML = `
       <div class="tournament-banner">
         <div class="banner-eyebrow">Round 2 — Best Ball</div>
-        <div class="banner-title">Team Scorecards</div>
+        <div class="banner-title">Hole ${h+1} of 18</div>
+        <div class="banner-subtitle">${course.name}</div>
       </div>
-      <div class="page-body">
-        <div style="margin-bottom:var(--space-md)">
-          <div style="display:flex;justify-content:space-between;align-items:center;margin-bottom:6px">
-            <span style="font-size:13px;color:var(--color-gray)">${completedTeams}/4 teams complete</span>
-            <button class="btn btn-sm btn-outline" onclick="rerenderTeamSetup()">Edit Teams</button>
-          </div>
-          <div class="progress-bar"><div class="progress-fill" style="width:${completedTeams*25}%"></div></div>
-        </div>
+      <div class="page-body" style="padding-top:var(--space-md)">
 
-        <div class="player-tabs">${teamTabs}</div>
+        <div class="hole-dots">${dots}</div>
+        <div style="font-size:12px;color:var(--color-gray);text-align:center;margin-bottom:var(--space-md)">${filled}/18 holes complete</div>
+
+        <div class="hbh-hole-card">
+          <div class="hbh-hole-stat"><div class="hbh-hole-num">${h+1}</div><div class="hbh-hole-label">HOLE</div></div>
+          <div class="hbh-hole-stat"><div class="hbh-hole-num">${par}</div><div class="hbh-hole-label">PAR</div></div>
+          <div class="hbh-hole-stat"><div class="hbh-hole-num">${si}</div><div class="hbh-hole-label">SI</div></div>
+          <div class="hbh-hole-stat" style="font-size:11px">
+            ${course.ctpHoles?.[0] === h+1 ? '<span class="badge badge-gold">CTP</span>' : ''}
+            ${course.longDriveHoles?.[0] === h+1 ? '<span class="badge badge-green">LD</span>' : ''}
+          </div>
+        </div>
 
         <div class="card" style="margin-bottom:var(--space-md)">
-          <div class="card-header" style="display:flex;justify-content:space-between">
-            <span>Team ${activeTeam+1}: ${playerA.name||'P'+(playerA.id+1)} &amp; ${playerB.name||'P'+(playerB.id+1)}</span>
+          <div class="card-header" style="display:flex;justify-content:space-between;align-items:center">
+            <span>Enter Scores</span>
+            <button class="btn btn-sm btn-outline" onclick="showRound2TeamSetup()">Edit Teams</button>
           </div>
-          <div class="card-body" style="padding:var(--space-sm)">
-            <div class="scorecard-wrapper">
-              ${buildBestBallTable(computedA, computedB, teamResult, pA.gross||[], pB.gross||[], playerA, playerB, course)}
-            </div>
+          <div class="card-body" style="padding:0">
+            <table class="hbh-table">
+              <thead>
+                <tr>
+                  <th></th>
+                  <th style="text-align:left">Player</th>
+                  <th>Hdp</th>
+                  <th>Gross</th>
+                  <th>Net / BB</th>
+                </tr>
+              </thead>
+              <tbody>${teamRows}</tbody>
+            </table>
           </div>
         </div>
 
-        <div style="display:flex;gap:var(--space-sm);flex-wrap:wrap;margin-bottom:var(--space-xl)">
-          ${rd.status !== 'complete' ? `<button class="btn btn-gold" id="finalize-r2">Finalize Round 2</button>` : `<span class="badge badge-green">✓ Round 2 Complete</span>`}
+        <div class="hbh-nav">
+          <button class="btn btn-outline hbh-nav-btn" ${h===0?'disabled':''} onclick="goToHoleR2(${h-1})">
+            ← Hole ${h}
+          </button>
+          <button class="btn btn-gold hbh-nav-btn" onclick="goToHoleR2(${h<17?h+1:h})" ${h===17?'style="opacity:0.4"':''}>
+            ${h < 17 ? `Hole ${h+2} →` : 'Last Hole'}
+          </button>
+        </div>
+
+        <div style="display:flex;gap:var(--space-sm);flex-wrap:wrap;margin-top:var(--space-md);margin-bottom:var(--space-xl)">
+          ${rd.status !== 'complete'
+            ? `<button class="btn btn-primary" id="finalize-r2">Finalize Round 2</button>`
+            : `<span class="badge badge-green">✓ Round 2 Complete</span>`}
           <button class="btn btn-outline" onclick="navigate('#home')">← Home</button>
         </div>
       </div>
     `;
 
-    bindBestBallEvents(activeTeam, team, playerA, playerB, course);
+    bindR2HoleInputs(h, rd.teams, course);
 
     const finBtn = document.getElementById('finalize-r2');
     if (finBtn) finBtn.addEventListener('click', () => {
@@ -842,104 +1066,95 @@ function showRound2() {
       showToast('Round 2 finalized!');
       navigate('#leaderboard');
     });
+
+    const firstEmpty = view.querySelector('.hbh-input[value=""]');
+    if (firstEmpty) setTimeout(() => firstEmpty.focus(), 80);
   }
 
-  window.setActiveTeam = (i) => { activeTeam = i; renderScorecard(); };
-  window.rerenderTeamSetup = () => { subView = 'teams'; renderTeamSetup(); };
+  function bindR2HoleInputs(holeIndex, teams, course) {
+    document.querySelectorAll('#view-round2 .hbh-input').forEach(input => {
+      input.addEventListener('input', () => {
+        const teamId  = +input.dataset.teamId;
+        const slot    = +input.dataset.slot;
+        const h       = +input.dataset.hole;
+        const gross   = parseInt(input.value) || null;
+        const handicap= +input.dataset.handicap;
+        const par     = +input.dataset.par;
+        const si      = +input.dataset.si;
+
+        // Live update net cell
+        const net    = gross ? cappedNet(gross, handicap, si, par) : null;
+        const result = scoreResult(net, par);
+        const netCell = document.querySelector(`#view-round2 .r2-net-cell[data-team-id="${teamId}"][data-slot="${slot}"]`);
+        if (netCell) netCell.innerHTML = net != null ? `<span class="score-badge ${result}">${net}</span>` : '–';
+
+        // Live update best ball cell using latest inputs
+        const team   = teams.find(t => t.id === teamId);
+        const inputs = document.querySelectorAll(`#view-round2 .hbh-input[data-team-id="${teamId}"]`);
+        const gA     = parseInt(inputs[0]?.value) || null;
+        const gB     = parseInt(inputs[1]?.value) || null;
+        const hcpA   = +inputs[0]?.dataset.handicap || 0;
+        const hcpB   = +inputs[1]?.dataset.handicap || 0;
+        const nA     = gA ? cappedNet(gA, hcpA, si, par) : null;
+        const nB     = gB ? cappedNet(gB, hcpB, si, par) : null;
+        const bb     = (nA != null && nB != null) ? Math.min(nA, nB) : (nA ?? nB);
+        const resBB  = scoreResult(bb, par);
+        const bbCell = document.querySelector(`#view-round2 .r2-bb-cell[data-team-id="${teamId}"]`);
+        if (bbCell) bbCell.innerHTML = bb != null ? `<span class="score-badge ${resBB}" style="color:var(--color-gold-light)">${bb}</span>` : '–';
+
+        // Debounced save
+        clearTimeout(scoreDebounceTimers[`r2-${teamId}-${slot}-${h}`]);
+        scoreDebounceTimers[`r2-${teamId}-${slot}-${h}`] = setTimeout(() => {
+          const round = loadRound(2);
+          let ts = round.scores.find(s => s.teamId === teamId);
+          if (!ts) {
+            ts = { teamId, playerScores: [
+              { playerId: team.players[0], gross: new Array(18).fill(null) },
+              { playerId: team.players[1], gross: new Array(18).fill(null) },
+            ]};
+            round.scores.push(ts);
+          }
+          if (!ts.playerScores[slot]) ts.playerScores[slot] = { playerId: team.players[slot], gross: new Array(18).fill(null) };
+          if (!ts.playerScores[slot].gross || ts.playerScores[slot].gross.length < 18) ts.playerScores[slot].gross = new Array(18).fill(null);
+          ts.playerScores[slot].gross[h] = gross;
+          if (round.status === 'not_started') round.status = 'in_progress';
+          saveRound(2, round);
+          updateR2HoleDot(holeIndex, teams);
+        }, 400);
+      });
+
+      input.addEventListener('keydown', e => {
+        if (e.key === 'Enter' || e.key === 'Tab') {
+          e.preventDefault();
+          const all = [...document.querySelectorAll('#view-round2 .hbh-input')];
+          const idx = all.indexOf(input);
+          if (idx < all.length - 1) {
+            all[idx + 1].focus();
+            all[idx + 1].select();
+          } else if (holeIndex < 17) {
+            goToHoleR2(holeIndex + 1);
+          }
+        }
+      });
+    });
+  }
+
+  function updateR2HoleDot(h, teams) {
+    const rd = loadRound(2);
+    const allFilled = teams.every(team => {
+      const ts = rd.scores.find(s => s.teamId === team.id);
+      return ts?.playerScores[0]?.gross?.[h] > 0 && ts?.playerScores[1]?.gross?.[h] > 0;
+    });
+    const dot = document.querySelector(`#view-round2 .hole-dot:nth-child(${h+1})`);
+    if (dot) dot.classList.toggle('done', allFilled);
+  }
+
+  window.goToHoleR2 = (h) => { if (h >= 0 && h < 18) { currentHole = h; renderScorecard(); } };
+  window.showRound2TeamSetup = () => { subView = 'teams'; renderTeamSetup(); };
 
   if (subView === 'teams') renderTeamSetup(); else renderScorecard();
 }
 
-function buildBestBallTable(computedA, computedB, teamResult, grossA, grossB, playerA, playerB, course) {
-  const { pars, strokeIndexes } = course;
-
-  function rows(start, end) {
-    return Array.from({ length: end - start }, (_, i) => {
-      const h = start + i;
-      const ga = grossA[h] || '', gb = grossB[h] || '';
-      const na = computedA.net[h], nb = computedB.net[h];
-      const bb = teamResult.bestBall[h];
-      const resA = scoreResult(na, pars[h]), resB = scoreResult(nb, pars[h]);
-      const resBB = scoreResult(bb, pars[h]);
-      const stA = getStrokesReceived(playerA.handicap, strokeIndexes[h]);
-      const stB = getStrokesReceived(playerB.handicap, strokeIndexes[h]);
-
-      return `
-        <tr class="best-ball-row-a">
-          <td rowspan="3" class="hole-num">${h+1}</td>
-          <td rowspan="3">${pars[h]}</td>
-          <td style="font-size:11px;color:var(--color-gray)">${playerA.name||'A'}</td>
-          <td style="font-size:11px">${stA > 0 ? '+'.repeat(stA) : '–'}</td>
-          <td><input class="score-input" type="number" inputmode="numeric" pattern="[0-9]*" min="1" max="15"
-               value="${ga}" data-hole="${h}" data-team="${activeTeamForBind}" data-player="a" placeholder="–"></td>
-          <td>${na != null ? `<span class="score-badge ${resA}">${na}</span>` : '–'}</td>
-        </tr>
-        <tr class="best-ball-row-b">
-          <td style="font-size:11px;color:var(--color-gray)">${playerB.name||'B'}</td>
-          <td style="font-size:11px">${stB > 0 ? '+'.repeat(stB) : '–'}</td>
-          <td><input class="score-input" type="number" inputmode="numeric" pattern="[0-9]*" min="1" max="15"
-               value="${gb}" data-hole="${h}" data-team="${activeTeamForBind}" data-player="b" placeholder="–"></td>
-          <td>${nb != null ? `<span class="score-badge ${resB}">${nb}</span>` : '–'}</td>
-        </tr>
-        <tr class="best-ball-row-best">
-          <td colspan="2" style="font-size:11px;letter-spacing:1px">BEST BALL</td>
-          <td></td>
-          <td colspan="2">${bb != null ? `<span class="score-badge ${resBB}" style="color:var(--color-gold-light)">${bb}</span>` : '–'}</td>
-        </tr>
-      `;
-    }).join('');
-  }
-
-  const bbFront = teamResult.bestBall.slice(0,9).filter(n=>n!=null).reduce((a,b)=>a+b,0);
-  const bbBack  = teamResult.bestBall.slice(9).filter(n=>n!=null).reduce((a,b)=>a+b,0);
-
-  return `
-    <table class="scorecard-table">
-      <thead>
-        <tr>
-          <th class="th-hole">Hole</th>
-          <th>Par</th>
-          <th>Player</th>
-          <th>Hdp</th>
-          <th>Gross</th>
-          <th>Net</th>
-        </tr>
-      </thead>
-      <tbody>
-        ${rows(0, 9)}
-        <tr class="subtotal">
-          <td colspan="5" style="text-align:right;padding-right:8px">OUT Best Ball</td>
-          <td>${teamResult.bestBall.slice(0,9).some(n=>n!=null) ? bbFront : '–'}</td>
-        </tr>
-        ${rows(9, 18)}
-        <tr class="subtotal">
-          <td colspan="5" style="text-align:right;padding-right:8px">IN Best Ball</td>
-          <td>${teamResult.bestBall.slice(9).some(n=>n!=null) ? bbBack : '–'}</td>
-        </tr>
-        <tr class="total-row">
-          <td colspan="5" style="text-align:right;padding-right:8px">TEAM TOTAL</td>
-          <td style="font-size:17px">${teamResult.total != null ? teamResult.total : '–'}</td>
-        </tr>
-      </tbody>
-    </table>
-  `;
-}
-
-let activeTeamForBind = 0;
-
-function bindBestBallEvents(teamId, team, playerA, playerB, course) {
-  activeTeamForBind = teamId;
-  document.querySelectorAll(`.score-input[data-team="${teamId}"]`).forEach(input => {
-    input.addEventListener('input', () => {
-      const hole = +input.dataset.hole;
-      const side = input.dataset.player;
-      clearTimeout(scoreDebounceTimers[`2-${teamId}-${side}-${hole}`]);
-      scoreDebounceTimers[`2-${teamId}-${side}-${hole}`] = setTimeout(() => {
-        saveBestBallScore(teamId, team, hole, side, parseInt(input.value) || null, playerA, playerB, course);
-      }, 400);
-    });
-  });
-}
 
 function saveBestBallScore(teamId, team, holeIndex, side, gross, playerA, playerB, course) {
   const round = loadRound(2);
@@ -955,22 +1170,69 @@ function saveBestBallScore(teamId, team, holeIndex, side, gross, playerA, player
     round.scores.push(ts);
   }
   const psIdx = side === 'a' ? 0 : 1;
-  if (!ts.playerScores[psIdx]) ts.playerScores[psIdx] = { playerId: team.players[psIdx], gross: new Array(18).fill(null) };
+  if (!ts.playerScores[psIdx]) {
+    ts.playerScores[psIdx] = { playerId: team.players[psIdx], gross: new Array(18).fill(null) };
+  }
+  if (!ts.playerScores[psIdx].gross || ts.playerScores[psIdx].gross.length < 18) {
+    ts.playerScores[psIdx].gross = new Array(18).fill(null);
+  }
   ts.playerScores[psIdx].gross[holeIndex] = gross;
   if (round.status === 'not_started') round.status = 'in_progress';
   saveRound(2, round);
 
-  // Re-render the table
-  const namedPlayers = loadPlayers().filter(p => p.name.trim());
-  const computedA = computePlayerRound(ts.playerScores[0].gross, playerA.handicap, course.pars, course.strokeIndexes);
-  const computedB = computePlayerRound(ts.playerScores[1].gross, playerB.handicap, course.pars, course.strokeIndexes);
-  const teamResult = computeTeamRound(ts, namedPlayers, course.pars, course.strokeIndexes);
+  // Recompute with fresh handicap lookups
+  const grossA = ts.playerScores[0]?.gross || new Array(18).fill(null);
+  const grossB = ts.playerScores[1]?.gross || new Array(18).fill(null);
+  const computedA = computePlayerRound(grossA, playerA.handicap, course.pars, course.strokeIndexes);
+  const computedB = computePlayerRound(grossB, playerB.handicap, course.pars, course.strokeIndexes);
 
-  const wrapper = document.querySelector('#view-round2 .scorecard-wrapper');
-  if (wrapper) {
-    wrapper.innerHTML = buildBestBallTable(computedA, computedB, teamResult, ts.playerScores[0].gross, ts.playerScores[1].gross, playerA, playerB, course);
-    bindBestBallEvents(teamId, team, playerA, playerB, course);
+  // Update only output cells — don't replace inputs (avoids focus loss & re-bind issues)
+  updateBestBallOutputCells(holeIndex, computedA, computedB, playerA, playerB, course);
+}
+
+function updateBestBallOutputCells(changedHole, computedA, computedB, playerA, playerB, course) {
+  const { pars } = course;
+
+  // Update all 18 holes' output cells (net + best ball)
+  for (let h = 0; h < 18; h++) {
+    const na = computedA.net[h];
+    const nb = computedB.net[h];
+    const bb = (na != null && nb != null) ? Math.min(na, nb)
+             : (na != null ? na : nb);
+    const resA  = scoreResult(na, pars[h]);
+    const resB  = scoreResult(nb, pars[h]);
+    const resBB = scoreResult(bb, pars[h]);
+
+    const netCellA  = document.querySelector(`#view-round2 .net-cell-a[data-hole="${h}"]`);
+    const netCellB  = document.querySelector(`#view-round2 .net-cell-b[data-hole="${h}"]`);
+    const bbCell    = document.querySelector(`#view-round2 .bb-cell[data-hole="${h}"]`);
+
+    if (netCellA) netCellA.innerHTML = na != null ? `<span class="score-badge ${resA}">${na}</span>` : '–';
+    if (netCellB) netCellB.innerHTML = nb != null ? `<span class="score-badge ${resB}">${nb}</span>` : '–';
+    if (bbCell)   bbCell.innerHTML   = bb != null ? `<span class="score-badge ${resBB}" style="color:var(--color-gold-light)">${bb}</span>` : '–';
   }
+
+  // Update totals
+  const bbFront = computedA.net.slice(0,9).map((na,i) => {
+    const nb = computedB.net[i];
+    return (na != null && nb != null) ? Math.min(na,nb) : (na ?? nb);
+  }).filter(n=>n!=null).reduce((a,b)=>a+b,0);
+  const bbBack = computedA.net.slice(9).map((na,i) => {
+    const nb = computedB.net[i+9];
+    return (na != null && nb != null) ? Math.min(na,nb) : (na ?? nb);
+  }).filter(n=>n!=null).reduce((a,b)=>a+b,0);
+  const bbTotal = bbFront + bbBack;
+
+  const frontCell = document.querySelector('#view-round2 .bb-total-front');
+  const backCell  = document.querySelector('#view-round2 .bb-total-back');
+  const totalCell = document.querySelector('#view-round2 .bb-total-all');
+
+  const hasFront = computedA.net.slice(0,9).some(n=>n!=null) || computedB.net.slice(0,9).some(n=>n!=null);
+  const hasBack  = computedA.net.slice(9).some(n=>n!=null)   || computedB.net.slice(9).some(n=>n!=null);
+
+  if (frontCell) frontCell.textContent = hasFront ? bbFront : '–';
+  if (backCell)  backCell.textContent  = hasBack  ? bbBack  : '–';
+  if (totalCell) totalCell.textContent = (hasFront || hasBack) ? bbTotal : '–';
 }
 
 // ── Leaderboard View ─────────────────────────────────────────────────────────
