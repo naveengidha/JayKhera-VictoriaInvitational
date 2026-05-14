@@ -278,7 +278,7 @@ body {
   gap: var(--space-sm);
 }
 
-.section-title svg { color: var(--color-gold); }
+.section-title svg { color: var(--color-gold); width: 22px; height: 22px; }
 
 /* ── Cards ── */
 .card {
