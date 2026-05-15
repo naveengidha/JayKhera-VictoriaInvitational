@@ -1,15 +1,9 @@
-const CACHE_NAME = 'bbc2026-v4';
+const CACHE_NAME = 'bbc2026-v5';
 const ASSETS = [
   './',
   './index.html',
   './manifest.json',
   './styles/main.css',
-  './js/app.js',
-  './js/scoring.js',
-  './js/storage.js',
-  './js/firebase.js',
-  './js/firebase-app-compat.js',
-  './js/firebase-database-compat.js',
   './icons/icon-192.svg',
   './icons/icon-512.svg',
   './assets/logo.jpeg',
@@ -32,6 +26,11 @@ self.addEventListener('activate', e => {
 });
 
 self.addEventListener('fetch', e => {
+  // Always fetch JS files from network — never serve stale cached scripts
+  if (e.request.url.endsWith('.js')) {
+    e.respondWith(fetch(e.request).catch(() => caches.match(e.request)));
+    return;
+  }
   e.respondWith(
     caches.match(e.request).then(cached => cached || fetch(e.request).catch(() => cached))
   );

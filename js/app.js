@@ -22,7 +22,7 @@ const ROUTES = {
   '#setup':       showSetup,
   '#round1':      () => showRound(1),
   '#round2':      showRound2,
-  '#round3':      () => showRound(3),
+  '#round3':      showRound3,
   '#leaderboard': showLeaderboard,
   '#payouts':     showPayouts,
   '#rules':       showRules,
@@ -540,7 +540,7 @@ function showRound(num) {
     for (let h = 0; h < 18; h++) {
       const anyMissing = namedPlayers.some(p => {
         const ps = rd.scores.find(s => s.playerId === p.id);
-        return !ps || !ps.gross[h];
+        return !ps || !ps.gross?.[h];
       });
       if (anyMissing) return h;
     }
@@ -884,6 +884,7 @@ function saveHoleScore(roundNum, playerId, holeIndex, gross, handicap) {
     round.scores.push(ps);
   }
   ps.handicap = handicap;
+  if (!Array.isArray(ps.gross)) ps.gross = new Array(18).fill(null);
   ps.gross[holeIndex] = gross;
   if (round.status === 'not_started') round.status = 'in_progress';
   saveRound(roundNum, round);
@@ -911,6 +912,142 @@ function finalizeRound(num, namedPlayers, course, isStableford) {
   saveRound(num, round);
   showToast(`Round ${num} finalized!`);
   navigate('#leaderboard');
+}
+
+// ── Round 3 View — single total gross per player ──────────────────────────────
+function showRound3() {
+  const view = document.getElementById('view-round3');
+  view.classList.add('active');
+
+  const players      = loadPlayers();
+  const course       = loadCourseForRound(3);
+  const namedPlayers = players.filter(p => p.name.trim());
+
+  function render() {
+    const rd = loadRound(3);
+
+    const playerRows = namedPlayers.map(p => {
+      const ps         = rd.scores.find(s => s.playerId === p.id);
+      const grossTotal = ps?.grossTotal ?? '';
+      const net        = grossTotal !== '' ? grossTotal - p.handicap : null;
+
+      return `
+        <tr>
+          <td style="text-align:left;padding:10px 12px;font-weight:500">${p.name || 'P'+(p.id+1)}</td>
+          <td style="text-align:center;padding:10px 8px;color:var(--color-gray);font-size:13px">${p.handicap}</td>
+          <td style="text-align:center;padding:6px 8px">
+            <input class="score-input r3-gross-input" type="number" inputmode="numeric"
+              pattern="[0-9]*" min="50" max="130"
+              value="${grossTotal}" placeholder="–"
+              data-player-id="${p.id}" data-handicap="${p.handicap}">
+          </td>
+          <td class="r3-net-cell" data-player-id="${p.id}" style="text-align:center;padding:10px 8px;font-weight:600">
+            ${net !== null ? net : '–'}
+          </td>
+        </tr>
+      `;
+    }).join('');
+
+    const allEntered = namedPlayers.every(p => {
+      const ps = rd.scores.find(s => s.playerId === p.id);
+      return ps?.grossTotal > 0;
+    });
+
+    view.innerHTML = `
+      <div class="tournament-banner">
+        <div class="banner-eyebrow">Round 3 — Stroke Play</div>
+        <div class="banner-title">Enter Total Scores</div>
+        <div class="banner-subtitle">${course.name}</div>
+      </div>
+      <div class="page-body" style="padding-top:var(--space-md)">
+        <div class="card" style="margin-bottom:var(--space-md)">
+          <div class="card-header">
+            <span>Gross Scores</span>
+            <span style="font-weight:400;font-size:11px">Net = Gross − Handicap</span>
+          </div>
+          <div class="card-body" style="padding:0">
+            <table style="width:100%;border-collapse:collapse">
+              <thead>
+                <tr style="border-bottom:1px solid var(--color-border)">
+                  <th style="text-align:left;padding:8px 12px;font-size:12px;color:var(--color-gray)">Player</th>
+                  <th style="text-align:center;padding:8px;font-size:12px;color:var(--color-gray)">Hdp</th>
+                  <th style="text-align:center;padding:8px;font-size:12px;color:var(--color-gray)">Gross</th>
+                  <th style="text-align:center;padding:8px;font-size:12px;color:var(--color-gray)">Net</th>
+                </tr>
+              </thead>
+              <tbody>${playerRows}</tbody>
+            </table>
+          </div>
+        </div>
+
+        <div style="display:flex;gap:var(--space-sm);flex-wrap:wrap;margin-bottom:var(--space-xl)">
+          ${rd.status !== 'complete'
+            ? `<button class="btn btn-primary" id="finalize-r3" ${allEntered ? '' : 'disabled'}>Finalize Round 3</button>`
+            : `<span class="badge badge-green">✓ Round 3 Complete</span>`}
+          <button class="btn btn-outline" onclick="navigate('#home')">← Home</button>
+        </div>
+      </div>
+    `;
+
+    // Bind inputs
+    view.querySelectorAll('.r3-gross-input').forEach(input => {
+      input.addEventListener('input', () => {
+        const pid      = +input.dataset.playerId;
+        const handicap = +input.dataset.handicap;
+        const gross    = parseInt(input.value) || null;
+
+        // Update net cell immediately
+        const netCell = view.querySelector(`.r3-net-cell[data-player-id="${pid}"]`);
+        if (netCell) netCell.textContent = gross !== null ? gross - handicap : '–';
+
+        // Debounced save
+        clearTimeout(scoreDebounceTimers[`3-${pid}`]);
+        scoreDebounceTimers[`3-${pid}`] = setTimeout(() => {
+          saveR3TotalScore(pid, gross, handicap);
+          // Re-check if finalize button should enable
+          const rd2   = loadRound(3);
+          const btn   = document.getElementById('finalize-r3');
+          if (btn) {
+            const done = namedPlayers.every(p2 => {
+              const ps2 = rd2.scores.find(s => s.playerId === p2.id);
+              return ps2?.grossTotal > 0;
+            });
+            btn.disabled = !done;
+          }
+        }, 400);
+      });
+    });
+
+    const finalizeBtn = document.getElementById('finalize-r3');
+    if (finalizeBtn) {
+      finalizeBtn.addEventListener('click', () => {
+        const rd2 = loadRound(3);
+        rd2.status = 'complete';
+        saveRound(3, rd2);
+        showToast('Round 3 finalized!');
+        navigate('#leaderboard');
+      });
+    }
+
+    // Auto-focus first empty input
+    const firstEmpty = view.querySelector('.r3-gross-input[value=""]');
+    if (firstEmpty) setTimeout(() => firstEmpty.focus(), 80);
+  }
+
+  render();
+}
+
+function saveR3TotalScore(playerId, grossTotal, handicap) {
+  const round = loadRound(3);
+  let ps = round.scores.find(s => s.playerId === playerId);
+  if (!ps) {
+    ps = { playerId, handicap, grossTotal: null };
+    round.scores.push(ps);
+  }
+  ps.handicap   = handicap;
+  ps.grossTotal = grossTotal;
+  if (round.status === 'not_started') round.status = 'in_progress';
+  saveRound(3, round);
 }
 
 // ── Round 2 View ─────────────────────────────────────────────────────────────
@@ -1413,8 +1550,14 @@ function showLeaderboard() {
 
       const playerScores = rd.scores.map(s => {
         const p = getPlayer(namedPlayers, s.playerId);
+        if (num === 3) {
+          const gross = s.grossTotal ?? null;
+          const net   = gross !== null ? gross - p.handicap : null;
+          return { s, p, gross, net, metric: net };
+        }
         const computed = computePlayerRound(s.gross||[], p.handicap, rc.pars, rc.strokeIndexes);
-        return { s, p, computed, metric: isStableford ? computed.stablefordTotal : computed.netTotal };
+        const gross = (s.gross||[]).filter(g=>g>0).reduce((a,b)=>a+b,0);
+        return { s, p, gross, net: computed.netTotal, metric: isStableford ? computed.stablefordTotal : computed.netTotal };
       }).sort((a,b) => isStableford ? (b.metric??-1)-(a.metric??-1) : (a.metric??999)-(b.metric??999));
 
       return `
@@ -1422,8 +1565,7 @@ function showLeaderboard() {
           <table class="standings-table">
             <thead><tr><th></th><th>Player</th><th style="text-align:right">Gross</th><th style="text-align:right">Net</th><th style="text-align:right">${isStableford?'Pts':'Net Total'}</th></tr></thead>
             <tbody>
-              ${playerScores.map(({ s, p, computed, metric }, idx) => {
-                const gross = (s.gross||[]).filter(g=>g>0).reduce((a,b)=>a+b,0);
+              ${playerScores.map(({ s, p, gross, net, metric }, idx) => {
                 const badge = idx < 3
                   ? `<span class="place-badge place-${idx+1}">${idx+1}</span>`
                   : `<span class="place-badge place-other">${idx+1}</span>`;
@@ -1432,7 +1574,7 @@ function showLeaderboard() {
                     <td style="text-align:center">${badge}</td>
                     <td class="player-name-cell">${p.name||'P'+(p.id+1)}</td>
                     <td style="text-align:right;color:var(--color-gray)">${gross||'–'}</td>
-                    <td style="text-align:right;color:var(--color-gray)">${computed.netTotal??'–'}</td>
+                    <td style="text-align:right;color:var(--color-gray)">${net??'–'}</td>
                     <td class="points-cell">${metric??'–'}</td>
                   </tr>
                 `;
@@ -1637,8 +1779,14 @@ function buildRoundWinnerBlock(rNum, rd, players, course, pool) {
   const isStableford = rNum === 1;
   const scores = rd.scores.map(s => {
     const p = getPlayer(namedPlayers, s.playerId);
-    const computed = computePlayerRound(s.gross||[], p.handicap, course.pars, course.strokeIndexes);
-    return { s, p, metric: isStableford ? computed.stablefordTotal : computed.netTotal };
+    let metric;
+    if (rNum === 3) {
+      metric = s.grossTotal != null ? s.grossTotal - p.handicap : null;
+    } else {
+      const computed = computePlayerRound(s.gross||[], p.handicap, course.pars, course.strokeIndexes);
+      metric = isStableford ? computed.stablefordTotal : computed.netTotal;
+    }
+    return { s, p, metric };
   }).filter(s => s.metric != null);
   if (scores.length === 0) return `<div class="payout-row"><span class="payout-label">No scores</span></div>`;
   scores.sort((a,b) => isStableford ? b.metric-a.metric : a.metric-b.metric);

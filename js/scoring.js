@@ -203,13 +203,14 @@ function computeOverall(round1, round2, round3, players, coursesOrCourse) {
     r2Points = assignTeamPoints(groups, round2.teams, TEAM_POINTS);
   }
 
-  // R3 — stroke play, lowest wins
+  // R3 — stroke play, lowest net wins (net = grossTotal - handicap)
   let r3Points = {};
   if (round3.status !== 'not_started' && round3.scores.length > 0) {
     const r3Scores = round3.scores.map(s => {
-      const computed = computePlayerRound(s.gross || [], s.handicap ?? getPlayerHandicap(players, s.playerId), c3.pars, c3.strokeIndexes);
-      return { playerId: s.playerId, total: computed.netTotal };
-    }).filter(s => s.total != null);
+      if (s.grossTotal == null) return null;
+      const handicap = s.handicap ?? getPlayerHandicap(players, s.playerId);
+      return { playerId: s.playerId, total: s.grossTotal - handicap };
+    }).filter(Boolean);
     const { groups } = rankPlayers(r3Scores, 'total', true);
     r3Points = assignPoints(groups, INDIVIDUAL_POINTS);
   }
@@ -295,16 +296,23 @@ function computePayouts(overallStandings, round1, round2, round3, players, cours
         }
       }
     } else {
-      // R1/R3 individual
-      const roundCourse = idx === 0 ? c1 : c3;
-      const { pars, strokeIndexes } = roundCourse;
-      const roundScores = round.scores.map(s => {
-        const computed = computePlayerRound(s.gross || [], s.handicap ?? getPlayerHandicap(players, s.playerId), pars, strokeIndexes);
-        return {
-          playerId: s.playerId,
-          total: idx === 0 ? computed.stablefordTotal : computed.netTotal,
-        };
-      }).filter(s => s.total != null);
+      // R1 (Stableford) or R3 (stroke play)
+      let roundScores;
+      if (idx === 0) {
+        // R1 — hole-by-hole, use stableford total
+        const { pars, strokeIndexes } = c1;
+        roundScores = round.scores.map(s => {
+          const computed = computePlayerRound(s.gross || [], s.handicap ?? getPlayerHandicap(players, s.playerId), pars, strokeIndexes);
+          return { playerId: s.playerId, total: computed.stablefordTotal };
+        }).filter(s => s.total != null);
+      } else {
+        // R3 — single gross total, net = gross - handicap
+        roundScores = round.scores.map(s => {
+          if (s.grossTotal == null) return null;
+          const handicap = s.handicap ?? getPlayerHandicap(players, s.playerId);
+          return { playerId: s.playerId, total: s.grossTotal - handicap };
+        }).filter(Boolean);
+      }
       if (roundScores.length === 0) return;
       const asc = idx !== 0;
       roundScores.sort((a, b) => asc ? a.total - b.total : b.total - a.total);
